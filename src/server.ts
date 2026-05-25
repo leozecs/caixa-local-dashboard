@@ -8,6 +8,8 @@ type ServerEntry = {
 };
 
 type EnvRecord = Record<string, string | undefined>;
+type SupabaseUser = { id: string; email?: string };
+type StoreStatus = "ativa" | "pendente" | "trial" | "cancelada";
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
@@ -47,12 +49,16 @@ function readEnv(env: unknown, key: string): string | undefined {
 }
 
 async function verifySupabaseToken(request: Request, env: unknown) {
+  return Boolean(await getSupabaseUser(request, env));
+}
+
+async function getSupabaseUser(request: Request, env: unknown): Promise<SupabaseUser | null> {
   const authorization = request.headers.get("authorization") || "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
   const supabaseUrl = readEnv(env, "VITE_SUPABASE_URL");
   const supabaseKey = readEnv(env, "VITE_SUPABASE_PUBLISHABLE_KEY");
 
-  if (!token || !supabaseUrl || !supabaseKey) return false;
+  if (!token || !supabaseUrl || !supabaseKey) return null;
 
   const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
     headers: {
@@ -61,7 +67,244 @@ async function verifySupabaseToken(request: Request, env: unknown) {
     },
   });
 
-  return response.ok;
+  if (!response.ok) return null;
+  return (await response.json()) as SupabaseUser;
+}
+
+function getSupabaseAdminConfig(env: unknown) {
+  const url = readEnv(env, "VITE_SUPABASE_URL");
+  const secretKey =
+    readEnv(env, "SUPABASE_SECRET_KEY") || readEnv(env, "SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!url || !secretKey) {
+    throw new Error("Configure SUPABASE_SECRET_KEY no ambiente do servidor.");
+  }
+
+  return { url, secretKey };
+}
+
+async function supabaseAdminFetch(
+  env: unknown,
+  path: string,
+  init: RequestInit & { prefer?: string } = {},
+) {
+  const { url, secretKey } = getSupabaseAdminConfig(env);
+  const headers = new Headers(init.headers);
+  headers.set("apikey", secretKey);
+  headers.set("authorization", `Bearer ${secretKey}`);
+  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  if (init.prefer) headers.set("prefer", init.prefer);
+
+  return fetch(`${url}${path}`, { ...init, headers });
+}
+
+async function requireOwner(request: Request, env: unknown) {
+  const user = await getSupabaseUser(request, env);
+  if (!user) throw new Response("Sessao invalida.", { status: 401 });
+
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=role&limit=1`,
+  );
+  if (!response.ok) throw new Response("Nao foi possivel validar permissoes.", { status: 403 });
+  const profiles = (await response.json()) as Array<{ role?: string }>;
+  if (profiles[0]?.role !== "owner") {
+    throw new Response("Apenas owner pode cadastrar lojas.", { status: 403 });
+  }
+
+  return user;
+}
+
+async function readErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = await response.json();
+    if (typeof payload?.message === "string") return payload.message;
+    if (typeof payload?.error_description === "string") return payload.error_description;
+    if (typeof payload?.msg === "string") return payload.msg;
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
+
+async function getSubscriptionPlanAmount(env: unknown, plan: string) {
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/subscription_plans?name=eq.${encodeURIComponent(plan)}&select=amount&limit=1`,
+  );
+  if (!response.ok) return 0;
+  const rows = (await response.json()) as Array<{ amount?: number }>;
+  return rows[0]?.amount ?? 0;
+}
+
+async function handleAdminCreateStore(request: Request, env: unknown) {
+  if (request.method !== "POST") {
+    return jsonResponse({ message: "Metodo nao permitido." }, { status: 405 });
+  }
+
+  try {
+    await requireOwner(request, env);
+  } catch (error) {
+    if (error instanceof Response) {
+      return jsonResponse({ message: await error.text() }, { status: error.status });
+    }
+    throw error;
+  }
+
+  const body = (await request.json()) as {
+    name?: string;
+    owner?: string;
+    email?: string;
+    password?: string;
+    segment?: string;
+    city?: string;
+    plan?: string;
+    status?: StoreStatus;
+    cnpj?: string | null;
+  };
+
+  const name = body.name?.trim();
+  const owner = body.owner?.trim();
+  const email = body.email?.trim().toLowerCase();
+  const password = body.password || "";
+  const segment = body.segment?.trim();
+  const city = body.city?.trim() || "Vinhedo/SP";
+  const plan = body.plan?.trim() || "Trial";
+  const status = body.status || "trial";
+
+  if (!name || !owner || !email || !password || !segment) {
+    return jsonResponse(
+      { message: "Preencha loja, responsavel, email, senha e segmento." },
+      { status: 400 },
+    );
+  }
+  if (password.length < 8) {
+    return jsonResponse(
+      { message: "A senha inicial precisa ter pelo menos 8 caracteres." },
+      { status: 400 },
+    );
+  }
+
+  const userResponse = await supabaseAdminFetch(env, "/auth/v1/admin/users", {
+    method: "POST",
+    body: JSON.stringify({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name: owner },
+    }),
+  });
+
+  if (!userResponse.ok) {
+    return jsonResponse(
+      {
+        message: await readErrorMessage(
+          userResponse,
+          "Nao foi possivel criar usuario no Supabase.",
+        ),
+      },
+      { status: userResponse.status },
+    );
+  }
+
+  const authUser = (await userResponse.json()) as { id: string };
+
+  const profileResponse = await supabaseAdminFetch(env, "/rest/v1/profiles?on_conflict=id", {
+    method: "POST",
+    prefer: "resolution=merge-duplicates",
+    body: JSON.stringify({
+      id: authUser.id,
+      email,
+      name: owner,
+      role: "lojista",
+      updated_at: new Date().toISOString(),
+    }),
+  });
+
+  if (!profileResponse.ok) {
+    return jsonResponse(
+      {
+        message: await readErrorMessage(
+          profileResponse,
+          "Usuario criado, mas perfil nao foi atualizado.",
+        ),
+      },
+      { status: profileResponse.status },
+    );
+  }
+
+  const storeResponse = await supabaseAdminFetch(env, "/rest/v1/stores?select=*", {
+    method: "POST",
+    prefer: "return=representation",
+    body: JSON.stringify({
+      name,
+      owner_name: owner,
+      segment,
+      city,
+      plan,
+      status,
+      cnpj: body.cnpj || null,
+    }),
+  });
+
+  if (!storeResponse.ok) {
+    return jsonResponse(
+      {
+        message: await readErrorMessage(
+          storeResponse,
+          "Usuario criado, mas loja nao foi cadastrada.",
+        ),
+      },
+      { status: storeResponse.status },
+    );
+  }
+
+  const [store] = (await storeResponse.json()) as Array<{ id: string }>;
+  const amount = await getSubscriptionPlanAmount(env, plan);
+
+  const memberResponse = await supabaseAdminFetch(env, "/rest/v1/store_members", {
+    method: "POST",
+    body: JSON.stringify({ store_id: store.id, user_id: authUser.id }),
+  });
+
+  if (!memberResponse.ok) {
+    return jsonResponse(
+      {
+        message: await readErrorMessage(
+          memberResponse,
+          "Loja criada, mas usuario nao foi vinculado a ela.",
+        ),
+      },
+      { status: memberResponse.status },
+    );
+  }
+
+  const subscriptionResponse = await supabaseAdminFetch(env, "/rest/v1/subscriptions", {
+    method: "POST",
+    body: JSON.stringify({
+      store_id: store.id,
+      plan,
+      amount,
+      status: status === "trial" ? "trial" : status === "pendente" ? "em_atraso" : "em_dia",
+      next_charge_date: new Date(new Date().setMonth(new Date().getMonth() + 1))
+        .toISOString()
+        .slice(0, 10),
+    }),
+  });
+
+  if (!subscriptionResponse.ok) {
+    return jsonResponse(
+      {
+        message: await readErrorMessage(
+          subscriptionResponse,
+          "Loja criada, mas assinatura nao foi cadastrada.",
+        ),
+      },
+      { status: subscriptionResponse.status },
+    );
+  }
+
+  return jsonResponse({ store });
 }
 
 function parseInsightText(text: string) {
@@ -217,6 +460,9 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === "/api/ai-insights") {
         return await handleAiInsights(request, env);
+      }
+      if (url.pathname === "/api/admin/stores") {
+        return await handleAdminCreateStore(request, env);
       }
 
       const handler = await getServerEntry();

@@ -206,6 +206,8 @@ function CreateStoreDialog({
   onSubmit: (data: {
     name: string;
     owner: string;
+    email: string;
+    password: string;
     segment: string;
     city: string;
     plan: Plan;
@@ -229,6 +231,8 @@ function CreateStoreDialog({
             onSubmit({
               name: String(form.get("name") || ""),
               owner: String(form.get("owner") || ""),
+              email: String(form.get("email") || ""),
+              password: String(form.get("password") || ""),
               segment: String(form.get("segment") || ""),
               city: String(form.get("city") || "Vinhedo/SP"),
               plan: String(form.get("plan") || defaultPlan) as Plan,
@@ -242,6 +246,18 @@ function CreateStoreDialog({
           </Field>
           <Field label="Responsável">
             <Input name="owner" required />
+          </Field>
+          <Field label="E-mail de acesso">
+            <Input name="email" type="email" autoComplete="email" required />
+          </Field>
+          <Field label="Senha inicial">
+            <Input
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              required
+            />
           </Field>
           <Field label="Segmento">
             <Input name="segment" required />

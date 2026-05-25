@@ -400,6 +400,8 @@ export async function listStores() {
 export async function createStore(input: {
   name: string;
   owner: string;
+  email: string;
+  password: string;
   segment: string;
   city: string;
   plan: Plan;
@@ -407,33 +409,26 @@ export async function createStore(input: {
   cnpj?: string | null;
 }) {
   const client = requireSupabase();
-  const planAmount = await getPlanAmount(input.plan);
-  const { data, error } = await client
-    .from("stores")
-    .insert({
-      name: input.name,
-      owner_name: input.owner,
-      segment: input.segment,
-      city: input.city,
-      plan: input.plan,
-      status: input.status,
-      cnpj: input.cnpj || null,
-    })
-    .select()
-    .single();
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  const token = sessionData.session?.access_token;
+  if (!token) throw new Error("Sessao expirada. Entre novamente.");
 
-  if (error) throw error;
-
-  await client.from("subscriptions").insert({
-    store_id: data.id,
-    plan: input.plan,
-    amount: Math.round(planAmount * 100),
-    status:
-      input.status === "trial" ? "trial" : input.status === "pendente" ? "em_atraso" : "em_dia",
-    next_charge_date: format(addMonths(new Date(), 1), "yyyy-MM-dd"),
+  const response = await fetch("/api/admin/stores", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
   });
 
-  return hydrateStore(data as StoreRow);
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.message || "Erro ao cadastrar loja.");
+  }
+
+  return hydrateStore(payload.store as StoreRow);
 }
 
 export async function updateStore(id: string, input: Partial<Store>) {
