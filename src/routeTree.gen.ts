@@ -21,6 +21,7 @@ import { Route as AppConfiguracoesRouteImport } from './routes/_app.configuracoe
 import { Route as AppAdminRouteImport } from './routes/_app.admin'
 import { Route as AppAdminIndexRouteImport } from './routes/_app.admin.index'
 import { Route as AppAdminLojasRouteImport } from './routes/_app.admin.lojas'
+import { Route as AppAdminConfiguracoesRouteImport } from './routes/_app.admin.configuracoes'
 import { Route as AppAdminAssinaturasRouteImport } from './routes/_app.admin.assinaturas'
 import { Route as AppAdminAlertasRouteImport } from './routes/_app.admin.alertas'
 
@@ -83,6 +84,11 @@ const AppAdminLojasRoute = AppAdminLojasRouteImport.update({
   path: '/lojas',
   getParentRoute: () => AppAdminRoute,
 } as any)
+const AppAdminConfiguracoesRoute = AppAdminConfiguracoesRouteImport.update({
+  id: '/configuracoes',
+  path: '/configuracoes',
+  getParentRoute: () => AppAdminRoute,
+} as any)
 const AppAdminAssinaturasRoute = AppAdminAssinaturasRouteImport.update({
   id: '/assinaturas',
   path: '/assinaturas',
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/relatorios': typeof AppRelatoriosRoute
   '/admin/alertas': typeof AppAdminAlertasRoute
   '/admin/assinaturas': typeof AppAdminAssinaturasRoute
+  '/admin/configuracoes': typeof AppAdminConfiguracoesRoute
   '/admin/lojas': typeof AppAdminLojasRoute
   '/admin/': typeof AppAdminIndexRoute
 }
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/relatorios': typeof AppRelatoriosRoute
   '/admin/alertas': typeof AppAdminAlertasRoute
   '/admin/assinaturas': typeof AppAdminAssinaturasRoute
+  '/admin/configuracoes': typeof AppAdminConfiguracoesRoute
   '/admin/lojas': typeof AppAdminLojasRoute
   '/admin': typeof AppAdminIndexRoute
 }
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/_app/relatorios': typeof AppRelatoriosRoute
   '/_app/admin/alertas': typeof AppAdminAlertasRoute
   '/_app/admin/assinaturas': typeof AppAdminAssinaturasRoute
+  '/_app/admin/configuracoes': typeof AppAdminConfiguracoesRoute
   '/_app/admin/lojas': typeof AppAdminLojasRoute
   '/_app/admin/': typeof AppAdminIndexRoute
 }
@@ -154,6 +163,7 @@ export interface FileRouteTypes {
     | '/relatorios'
     | '/admin/alertas'
     | '/admin/assinaturas'
+    | '/admin/configuracoes'
     | '/admin/lojas'
     | '/admin/'
   fileRoutesByTo: FileRoutesByTo
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/relatorios'
     | '/admin/alertas'
     | '/admin/assinaturas'
+    | '/admin/configuracoes'
     | '/admin/lojas'
     | '/admin'
   id:
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | '/_app/relatorios'
     | '/_app/admin/alertas'
     | '/_app/admin/assinaturas'
+    | '/_app/admin/configuracoes'
     | '/_app/admin/lojas'
     | '/_app/admin/'
   fileRoutesById: FileRoutesById
@@ -280,6 +292,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminLojasRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/admin/configuracoes': {
+      id: '/_app/admin/configuracoes'
+      path: '/configuracoes'
+      fullPath: '/admin/configuracoes'
+      preLoaderRoute: typeof AppAdminConfiguracoesRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
     '/_app/admin/assinaturas': {
       id: '/_app/admin/assinaturas'
       path: '/assinaturas'
@@ -300,6 +319,7 @@ declare module '@tanstack/react-router' {
 interface AppAdminRouteChildren {
   AppAdminAlertasRoute: typeof AppAdminAlertasRoute
   AppAdminAssinaturasRoute: typeof AppAdminAssinaturasRoute
+  AppAdminConfiguracoesRoute: typeof AppAdminConfiguracoesRoute
   AppAdminLojasRoute: typeof AppAdminLojasRoute
   AppAdminIndexRoute: typeof AppAdminIndexRoute
 }
@@ -307,6 +327,7 @@ interface AppAdminRouteChildren {
 const AppAdminRouteChildren: AppAdminRouteChildren = {
   AppAdminAlertasRoute: AppAdminAlertasRoute,
   AppAdminAssinaturasRoute: AppAdminAssinaturasRoute,
+  AppAdminConfiguracoesRoute: AppAdminConfiguracoesRoute,
   AppAdminLojasRoute: AppAdminLojasRoute,
   AppAdminIndexRoute: AppAdminIndexRoute,
 }

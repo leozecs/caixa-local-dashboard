@@ -9,7 +9,6 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -30,12 +29,12 @@ import {
   formatBRL,
   listStores,
   listSubscriptionPlans,
+  updateStorePlan,
   type Plan,
   type StoreStatus,
   type SubscriptionPlan,
 } from "@/lib/data";
 import { RiskBadge } from "./_app.admin.index";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/admin/lojas")({
   head: () => ({ meta: [{ title: "Lojas — Admin Caixa Local" }] }),
@@ -62,6 +61,17 @@ function AdminLojas() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao cadastrar loja."),
+  });
+  const planMutation = useMutation({
+    mutationFn: updateStorePlan,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-stores"] });
+      queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["current-store"] });
+      toast.success("Plano da loja atualizado.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar plano."),
   });
 
   const filtered = useMemo(() => {
@@ -139,9 +149,52 @@ function AdminLojas() {
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">{store.owner}</td>
                     <td className="px-4 py-2.5">
-                      <StatusBadge status={store.status} />
+                      <Select
+                        value={store.status}
+                        disabled={planMutation.isPending}
+                        onValueChange={(value) =>
+                          planMutation.mutate({
+                            storeId: store.id,
+                            plan: store.plan,
+                            status: value as StoreStatus,
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-[128px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="trial">Trial</SelectItem>
+                          <SelectItem value="ativa">Ativa</SelectItem>
+                          <SelectItem value="pendente">Pendente</SelectItem>
+                          <SelectItem value="cancelada">Cancelada</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </td>
-                    <td className="px-4 py-2.5">{store.plan}</td>
+                    <td className="px-4 py-2.5">
+                      <Select
+                        value={store.plan}
+                        disabled={planMutation.isPending}
+                        onValueChange={(value) =>
+                          planMutation.mutate({
+                            storeId: store.id,
+                            plan: value,
+                            status: store.status,
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-[150px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {plans.map((plan) => (
+                            <SelectItem key={plan.id} value={plan.name}>
+                              {plan.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
                     <td className="px-4 py-2.5 text-muted-foreground text-xs">
                       {store.lastAccess
                         ? formatDistanceToNow(parseISO(store.lastAccess), {
@@ -312,22 +365,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <Label>{label}</Label>
       {children}
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: StoreStatus }) {
-  const map = {
-    ativa: { label: "Ativa", cls: "border-success/40 text-success bg-success/5" },
-    pendente: { label: "Pendente", cls: "border-warning/40 text-warning bg-warning/5" },
-    trial: { label: "Trial", cls: "border-info/40 text-info bg-info/5" },
-    cancelada: {
-      label: "Cancelada",
-      cls: "border-destructive/40 text-destructive bg-destructive/5",
-    },
-  }[status];
-  return (
-    <Badge variant="outline" className={cn("h-5 px-1.5 font-normal text-[11px]", map.cls)}>
-      {map.label}
-    </Badge>
   );
 }

@@ -152,28 +152,31 @@ type AiInsightDbRow = {
 
 const DEFAULT_PLANS: SubscriptionPlan[] = [
   {
-    id: "default-trial",
-    name: "Trial",
-    amount: 0,
-    description: "Teste inicial sem cobranca recorrente.",
-    active: true,
-    sortOrder: 0,
-  },
-  {
-    id: "default-basico",
-    name: "Basico",
-    amount: 39,
-    description: "Controle essencial para comercio local.",
+    id: "default-economico",
+    name: "Economico",
+    amount: 59.99,
+    description:
+      "Para lojas que precisam controlar o caixa sem complexidade. Inclui lancamentos de receita e despesa, dashboard mensal do mes atual, metas de faturamento e despesa, relatorios de lucro total, gastos totais e categorias configuraveis. Limite: 1 usuario por loja.",
     active: true,
     sortOrder: 1,
   },
   {
-    id: "default-pro",
-    name: "Pro",
-    amount: 79,
-    description: "Recursos completos para operacao e acompanhamento.",
+    id: "default-essencial",
+    name: "Essencial",
+    amount: 99.99,
+    description:
+      "Melhor custo-beneficio para acompanhar a operacao com alertas. Inclui tudo do Economico, alerta de margem, alerta de despesa, alerta de meta atrasada, historico mensal comparativo, ate 3 usuarios por loja e suporte por WhatsApp em ate 1 dia util.",
     active: true,
     sortOrder: 2,
+  },
+  {
+    id: "default-gestao-local",
+    name: "Gestao Local",
+    amount: 149.99,
+    description:
+      "Plano consultivo para o cliente entender onde ganhou, perdeu e pode melhorar. Inclui tudo do Essencial, relatorio interpretado, pontos de atencao em abas filtraveis, sugestao mensal personalizada de economia, acesso ao Meu Consultor IA, ate 5 usuarios por loja e suporte por WhatsApp em ate 2h em dias uteis no horario comercial; fora do horario comercial e fins de semana, resposta em ate 1 dia.",
+    active: true,
+    sortOrder: 3,
   },
 ];
 
@@ -450,6 +453,41 @@ export async function updateStore(id: string, input: Partial<Store>) {
     .single();
 
   if (error) throw error;
+  return hydrateStore(data as StoreRow);
+}
+
+export async function updateStorePlan(input: { storeId: string; plan: Plan; status: StoreStatus }) {
+  const client = requireSupabase();
+  const planAmount = await getPlanAmount(input.plan);
+  const subscriptionStatus: SubscriptionStatus =
+    input.status === "trial" ? "trial" : input.status === "pendente" ? "em_atraso" : "em_dia";
+
+  const { data, error } = await client
+    .from("stores")
+    .update({
+      plan: input.plan,
+      status: input.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.storeId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  const { error: subscriptionError } = await client.from("subscriptions").upsert(
+    {
+      store_id: input.storeId,
+      plan: input.plan,
+      amount: Math.round(planAmount * 100),
+      status: subscriptionStatus,
+      next_charge_date: format(addMonths(new Date(), 1), "yyyy-MM-dd"),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "store_id" },
+  );
+
+  if (subscriptionError) throw subscriptionError;
   return hydrateStore(data as StoreRow);
 }
 

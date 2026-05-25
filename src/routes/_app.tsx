@@ -51,6 +51,7 @@ const ADMIN_NAV = [
   { to: "/admin/lojas", label: "Lojas", icon: Building2 },
   { to: "/admin/assinaturas", label: "Assinaturas", icon: CreditCard },
   { to: "/admin/alertas", label: "Alertas", icon: Bell },
+  { to: "/admin/configuracoes", label: "Config", icon: Settings },
 ] as const;
 
 const MONTHS = [
@@ -205,7 +206,7 @@ function AppShell() {
 
         {/* Bottom nav mobile */}
         <nav className="lg:hidden fixed bottom-0 inset-x-0 bg-card border-t border-border flex items-center justify-around h-16 z-30">
-          {(inAdmin && isAdmin ? ADMIN_NAV.slice(0, 4) : STORE_NAV.slice(0, 5)).map((item) => {
+          {(inAdmin && isAdmin ? ADMIN_NAV.slice(0, 5) : STORE_NAV.slice(0, 5)).map((item) => {
             const active =
               pathname === item.to || (item.to !== "/admin" && pathname.startsWith(item.to + "/"));
             const Icon = item.icon;
