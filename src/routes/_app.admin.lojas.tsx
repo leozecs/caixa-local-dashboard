@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -34,7 +35,7 @@ import {
   type StoreStatus,
   type SubscriptionPlan,
 } from "@/lib/data";
-import { RiskBadge } from "./_app.admin.index";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/admin/lojas")({
   head: () => ({ meta: [{ title: "Lojas — Admin Caixa Local" }] }),
@@ -365,5 +366,18 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <Label>{label}</Label>
       {children}
     </div>
+  );
+}
+
+function RiskBadge({ risk }: { risk: "saudavel" | "atencao" | "critico" }) {
+  const map = {
+    saudavel: { label: "Saudavel", cls: "border-success/40 text-success bg-success/5" },
+    atencao: { label: "Atencao", cls: "border-warning/40 text-warning bg-warning/5" },
+    critico: { label: "Critico", cls: "border-destructive/40 text-destructive bg-destructive/5" },
+  }[risk];
+  return (
+    <Badge variant="outline" className={cn("h-5 px-1.5 font-normal text-[11px]", map.cls)}>
+      {map.label}
+    </Badge>
   );
 }

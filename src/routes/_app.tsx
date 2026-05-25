@@ -16,6 +16,7 @@ import {
   Building2,
   CreditCard,
   Bell,
+  Brain,
   Menu,
   X,
 } from "lucide-react";
@@ -50,6 +51,7 @@ const ADMIN_NAV = [
   { to: "/admin", label: "Visão geral", icon: Shield },
   { to: "/admin/lojas", label: "Lojas", icon: Building2 },
   { to: "/admin/assinaturas", label: "Assinaturas", icon: CreditCard },
+  { to: "/admin/consultor-ia", label: "Consultor IA", icon: Brain },
   { to: "/admin/alertas", label: "Alertas", icon: Bell },
   { to: "/admin/configuracoes", label: "Config", icon: Settings },
 ] as const;
@@ -80,12 +82,18 @@ function AppShell() {
   const { data: currentStore } = useQuery({
     queryKey: ["current-store", session?.profile.id, session?.profile.role],
     queryFn: () => getCurrentStore(session!.profile),
-    enabled: Boolean(session),
+    enabled: Boolean(session && session.role !== "owner"),
   });
 
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/login" });
   }, [loading, session, navigate]);
+
+  useEffect(() => {
+    if (loading || !session) return;
+    if (session.role === "owner" && !inAdmin) navigate({ to: "/admin" });
+    if (session.role === "lojista" && inAdmin) navigate({ to: "/dashboard" });
+  }, [loading, session, inAdmin, navigate]);
 
   if (loading || !session) return null;
 
@@ -95,17 +103,6 @@ function AppShell() {
       <aside className="hidden lg:flex w-60 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
         <BrandBlock />
         <SidebarNav items={inAdmin && isAdmin ? ADMIN_NAV : STORE_NAV} pathname={pathname} />
-        {isAdmin && (
-          <div className="px-3 pb-3">
-            <Link
-              to={inAdmin ? "/dashboard" : "/admin"}
-              className="flex items-center justify-center gap-2 text-xs rounded-md border border-sidebar-border bg-sidebar-accent/40 px-3 py-2 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-            >
-              {inAdmin ? <StoreIcon className="h-3.5 w-3.5" /> : <Shield className="h-3.5 w-3.5" />}
-              {inAdmin ? "Voltar para a loja" : "Acessar painel admin"}
-            </Link>
-          </div>
-        )}
         <div className="mt-auto p-3 border-t border-sidebar-border">
           <div className="text-xs text-sidebar-foreground/60">Logado como</div>
           <div className="text-sm font-medium truncate">{session.name}</div>
@@ -132,17 +129,6 @@ function AppShell() {
               pathname={pathname}
               onNavigate={() => setMobileOpen(false)}
             />
-            {isAdmin && (
-              <div className="px-3 pb-3">
-                <Link
-                  to={inAdmin ? "/dashboard" : "/admin"}
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center justify-center gap-2 text-xs rounded-md border border-sidebar-border px-3 py-2"
-                >
-                  {inAdmin ? "Voltar para a loja" : "Acessar painel admin"}
-                </Link>
-              </div>
-            )}
           </aside>
         </div>
       )}
@@ -158,7 +144,7 @@ function AppShell() {
             <Menu className="h-4 w-4" />
           </button>
 
-          <StoreSwitcher inAdmin={inAdmin} store={currentStore || null} />
+          <StoreSwitcher inAdmin={inAdmin} store={isAdmin ? null : currentStore || null} />
 
           <div className="ml-auto flex items-center gap-2">
             <MonthSelector month={month} setMonth={setMonth} />
@@ -206,7 +192,7 @@ function AppShell() {
 
         {/* Bottom nav mobile */}
         <nav className="lg:hidden fixed bottom-0 inset-x-0 bg-card border-t border-border flex items-center justify-around h-16 z-30">
-          {(inAdmin && isAdmin ? ADMIN_NAV.slice(0, 5) : STORE_NAV.slice(0, 5)).map((item) => {
+          {(inAdmin && isAdmin ? ADMIN_NAV.slice(0, 6) : STORE_NAV.slice(0, 5)).map((item) => {
             const active =
               pathname === item.to || (item.to !== "/admin" && pathname.startsWith(item.to + "/"));
             const Icon = item.icon;

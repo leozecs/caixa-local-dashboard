@@ -1,12 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { formatBRL, saveSubscriptionPlan, type SubscriptionPlan } from "@/lib/data";
+import {
+  deleteSubscriptionPlan,
+  formatBRL,
+  saveSubscriptionPlan,
+  type SubscriptionPlan,
+} from "@/lib/data";
 
 export function PlansCard({ plans }: { plans: SubscriptionPlan[] }) {
   const queryClient = useQueryClient();
@@ -28,6 +33,17 @@ export function PlansCard({ plans }: { plans: SubscriptionPlan[] }) {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao salvar plano."),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: deleteSubscriptionPlan,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["subscription-plans"] });
+      queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-stores"] });
+      toast.success("Plano excluido.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao excluir plano."),
   });
 
   return (
@@ -51,8 +67,14 @@ export function PlansCard({ plans }: { plans: SubscriptionPlan[] }) {
               plan={plan}
               title="Editar plano"
               submitLabel="Salvar"
-              pending={mutation.isPending}
+              pending={mutation.isPending || deleteMutation.isPending}
               onSubmit={(payload) => mutation.mutate(payload)}
+              onDelete={() => {
+                const confirmed = window.confirm(
+                  `Excluir o plano "${plan.name}"? Lojas que ja usam esse nome continuam com historico, mas o plano sai da lista.`,
+                );
+                if (confirmed) deleteMutation.mutate(plan.id);
+              }}
             />
           ))}
           {!plans.length && (
@@ -73,6 +95,7 @@ function PlanForm({
   defaultSortOrder,
   pending,
   onSubmit,
+  onDelete,
 }: {
   plan?: SubscriptionPlan;
   title: string;
@@ -80,6 +103,7 @@ function PlanForm({
   defaultSortOrder?: number;
   pending: boolean;
   onSubmit: (payload: FormData) => void;
+  onDelete?: () => void;
 }) {
   return (
     <form
@@ -114,10 +138,24 @@ function PlanForm({
           defaultValue={plan?.sortOrder ?? defaultSortOrder ?? 0}
         />
       </Field>
-      <Button type="submit" size="sm" className="gap-2" disabled={pending}>
-        {!plan && <Plus className="h-4 w-4" />}
-        {submitLabel}
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button type="submit" size="sm" className="gap-2" disabled={pending}>
+          {!plan && <Plus className="h-4 w-4" />}
+          {submitLabel}
+        </Button>
+        {plan && (
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            disabled={pending}
+            onClick={onDelete}
+            aria-label="Excluir plano"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
       <div className="md:col-span-4">
         <Textarea
           name="description"

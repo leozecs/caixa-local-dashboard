@@ -21,6 +21,7 @@ import { Route as AppConfiguracoesRouteImport } from './routes/_app.configuracoe
 import { Route as AppAdminRouteImport } from './routes/_app.admin'
 import { Route as AppAdminIndexRouteImport } from './routes/_app.admin.index'
 import { Route as AppAdminLojasRouteImport } from './routes/_app.admin.lojas'
+import { Route as AppAdminConsultorIaRouteImport } from './routes/_app.admin.consultor-ia'
 import { Route as AppAdminConfiguracoesRouteImport } from './routes/_app.admin.configuracoes'
 import { Route as AppAdminAssinaturasRouteImport } from './routes/_app.admin.assinaturas'
 import { Route as AppAdminAlertasRouteImport } from './routes/_app.admin.alertas'
@@ -84,6 +85,11 @@ const AppAdminLojasRoute = AppAdminLojasRouteImport.update({
   path: '/lojas',
   getParentRoute: () => AppAdminRoute,
 } as any)
+const AppAdminConsultorIaRoute = AppAdminConsultorIaRouteImport.update({
+  id: '/consultor-ia',
+  path: '/consultor-ia',
+  getParentRoute: () => AppAdminRoute,
+} as any)
 const AppAdminConfiguracoesRoute = AppAdminConfiguracoesRouteImport.update({
   id: '/configuracoes',
   path: '/configuracoes',
@@ -113,6 +119,7 @@ export interface FileRoutesByFullPath {
   '/admin/alertas': typeof AppAdminAlertasRoute
   '/admin/assinaturas': typeof AppAdminAssinaturasRoute
   '/admin/configuracoes': typeof AppAdminConfiguracoesRoute
+  '/admin/consultor-ia': typeof AppAdminConsultorIaRoute
   '/admin/lojas': typeof AppAdminLojasRoute
   '/admin/': typeof AppAdminIndexRoute
 }
@@ -128,6 +135,7 @@ export interface FileRoutesByTo {
   '/admin/alertas': typeof AppAdminAlertasRoute
   '/admin/assinaturas': typeof AppAdminAssinaturasRoute
   '/admin/configuracoes': typeof AppAdminConfiguracoesRoute
+  '/admin/consultor-ia': typeof AppAdminConsultorIaRoute
   '/admin/lojas': typeof AppAdminLojasRoute
   '/admin': typeof AppAdminIndexRoute
 }
@@ -146,6 +154,7 @@ export interface FileRoutesById {
   '/_app/admin/alertas': typeof AppAdminAlertasRoute
   '/_app/admin/assinaturas': typeof AppAdminAssinaturasRoute
   '/_app/admin/configuracoes': typeof AppAdminConfiguracoesRoute
+  '/_app/admin/consultor-ia': typeof AppAdminConsultorIaRoute
   '/_app/admin/lojas': typeof AppAdminLojasRoute
   '/_app/admin/': typeof AppAdminIndexRoute
 }
@@ -164,6 +173,7 @@ export interface FileRouteTypes {
     | '/admin/alertas'
     | '/admin/assinaturas'
     | '/admin/configuracoes'
+    | '/admin/consultor-ia'
     | '/admin/lojas'
     | '/admin/'
   fileRoutesByTo: FileRoutesByTo
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/admin/alertas'
     | '/admin/assinaturas'
     | '/admin/configuracoes'
+    | '/admin/consultor-ia'
     | '/admin/lojas'
     | '/admin'
   id:
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/_app/admin/alertas'
     | '/_app/admin/assinaturas'
     | '/_app/admin/configuracoes'
+    | '/_app/admin/consultor-ia'
     | '/_app/admin/lojas'
     | '/_app/admin/'
   fileRoutesById: FileRoutesById
@@ -292,6 +304,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminLojasRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/admin/consultor-ia': {
+      id: '/_app/admin/consultor-ia'
+      path: '/consultor-ia'
+      fullPath: '/admin/consultor-ia'
+      preLoaderRoute: typeof AppAdminConsultorIaRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
     '/_app/admin/configuracoes': {
       id: '/_app/admin/configuracoes'
       path: '/configuracoes'
@@ -320,6 +339,7 @@ interface AppAdminRouteChildren {
   AppAdminAlertasRoute: typeof AppAdminAlertasRoute
   AppAdminAssinaturasRoute: typeof AppAdminAssinaturasRoute
   AppAdminConfiguracoesRoute: typeof AppAdminConfiguracoesRoute
+  AppAdminConsultorIaRoute: typeof AppAdminConsultorIaRoute
   AppAdminLojasRoute: typeof AppAdminLojasRoute
   AppAdminIndexRoute: typeof AppAdminIndexRoute
 }
@@ -328,6 +348,7 @@ const AppAdminRouteChildren: AppAdminRouteChildren = {
   AppAdminAlertasRoute: AppAdminAlertasRoute,
   AppAdminAssinaturasRoute: AppAdminAssinaturasRoute,
   AppAdminConfiguracoesRoute: AppAdminConfiguracoesRoute,
+  AppAdminConsultorIaRoute: AppAdminConsultorIaRoute,
   AppAdminLojasRoute: AppAdminLojasRoute,
   AppAdminIndexRoute: AppAdminIndexRoute,
 }

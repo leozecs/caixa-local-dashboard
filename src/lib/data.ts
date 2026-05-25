@@ -79,6 +79,17 @@ export interface SubscriptionPlan {
   sortOrder: number;
 }
 
+export interface StoreMonthlyResult {
+  storeId: string;
+  storeName: string;
+  owner: string;
+  plan: Plan;
+  status: StoreStatus;
+  revenue: number;
+  expenses: number;
+  profit: number;
+}
+
 export interface AdminAlert {
   id: string;
   severity: "critico" | "atencao" | "info";
@@ -355,6 +366,12 @@ export async function saveSubscriptionPlan(input: {
   return toSubscriptionPlan(data as SubscriptionPlanDbRow);
 }
 
+export async function deleteSubscriptionPlan(id: string) {
+  const client = requireSupabase();
+  const { error } = await client.from("subscription_plans").delete().eq("id", id);
+  if (error) throw error;
+}
+
 async function getPlanAmount(planName: string) {
   const plans = await listSubscriptionPlans({ activeOnly: false });
   return plans.find((plan) => plan.name === planName)?.amount ?? 0;
@@ -619,6 +636,42 @@ export async function listSubscriptions(): Promise<SubscriptionRow[]> {
     nextCharge: row.next_charge_date,
     payStatus: row.status,
   }));
+}
+
+export async function listStoreMonthlyResults(month = new Date()): Promise<StoreMonthlyResult[]> {
+  const client = requireSupabase();
+  const stores = await listStores();
+  const range = monthRange(month);
+  const { data, error } = await client
+    .from("financial_entries")
+    .select("store_id, type, amount")
+    .gte("entry_date", range.start)
+    .lt("entry_date", range.end);
+
+  if (error) throw error;
+
+  const totals = new Map<string, { revenue: number; expenses: number }>();
+  (data || []).forEach((row) => {
+    const entry = row as Pick<EntryRow, "store_id" | "type" | "amount">;
+    const current = totals.get(entry.store_id) || { revenue: 0, expenses: 0 };
+    if (entry.type === "receita") current.revenue += entry.amount / 100;
+    else current.expenses += entry.amount / 100;
+    totals.set(entry.store_id, current);
+  });
+
+  return stores.map((store) => {
+    const total = totals.get(store.id) || { revenue: 0, expenses: 0 };
+    return {
+      storeId: store.id,
+      storeName: store.name,
+      owner: store.owner,
+      plan: store.plan,
+      status: store.status,
+      revenue: total.revenue,
+      expenses: total.expenses,
+      profit: total.revenue - total.expenses,
+    };
+  });
 }
 
 export async function listAdminAlerts(): Promise<AdminAlert[]> {
