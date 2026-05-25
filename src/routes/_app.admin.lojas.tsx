@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { ADMIN_STORES, formatBRL } from "@/lib/mock-data";
-import { RiskBadge } from "./_app.admin";
+import { RiskBadge } from "./_app.admin.index";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/admin/lojas")({
