@@ -10,6 +10,16 @@ type ServerEntry = {
 type EnvRecord = Record<string, string | undefined>;
 type SupabaseUser = { id: string; email?: string };
 type StoreStatus = "ativa" | "pendente" | "trial" | "cancelada";
+type AiInsight = {
+  summary: string;
+  opportunity: string;
+  risk: string;
+  actions: string[];
+};
+
+const AI_SYSTEM_PROMPT =
+  'Voce e um consultor financeiro para pequenos comercios locais no Brasil. Analise apenas os dados recebidos, seja pratico e nao invente numeros. Responda exclusivamente em JSON valido no formato {"summary":"...","opportunity":"...","risk":"...","actions":["...","...","..."]}.';
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
@@ -46,10 +56,6 @@ function readEnv(env: unknown, key: string): string | undefined {
   }
 
   return process.env[key];
-}
-
-async function verifySupabaseToken(request: Request, env: unknown) {
-  return Boolean(await getSupabaseUser(request, env));
 }
 
 async function getSupabaseUser(request: Request, env: unknown): Promise<SupabaseUser | null> {
@@ -113,6 +119,24 @@ async function requireOwner(request: Request, env: unknown) {
   }
 
   return user;
+}
+
+async function canAccessStore(env: unknown, userId: string, storeId: string) {
+  const profileResponse = await supabaseAdminFetch(
+    env,
+    `/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=role&limit=1`,
+  );
+  if (!profileResponse.ok) return false;
+  const profiles = (await profileResponse.json()) as Array<{ role?: string }>;
+  if (profiles[0]?.role === "owner") return true;
+
+  const memberResponse = await supabaseAdminFetch(
+    env,
+    `/rest/v1/store_members?store_id=eq.${encodeURIComponent(storeId)}&user_id=eq.${encodeURIComponent(userId)}&select=id&limit=1`,
+  );
+  if (!memberResponse.ok) return false;
+  const members = (await memberResponse.json()) as Array<{ id?: string }>;
+  return Boolean(members[0]?.id);
 }
 
 async function readErrorMessage(response: Response, fallback: string) {
@@ -307,7 +331,7 @@ async function handleAdminCreateStore(request: Request, env: unknown) {
   return jsonResponse({ store });
 }
 
-function parseInsightText(text: string) {
+function parseInsightText(text: string): AiInsight {
   const trimmed = text.trim();
   const jsonStart = trimmed.indexOf("{");
   const jsonEnd = trimmed.lastIndexOf("}");
@@ -330,7 +354,7 @@ function parseInsightText(text: string) {
   };
 }
 
-function extractResponseText(payload: unknown) {
+function extractOpenAiResponseText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
   const direct = (payload as { output_text?: unknown }).output_text;
   if (typeof direct === "string") return direct;
@@ -352,25 +376,31 @@ function extractResponseText(payload: unknown) {
     .join("\n");
 }
 
-async function handleAiInsights(request: Request, env: unknown) {
-  if (request.method !== "POST") {
-    return jsonResponse({ message: "Metodo nao permitido." }, { status: 405 });
-  }
+function extractChatResponseText(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices)) return "";
+  const first = choices[0];
+  if (!first || typeof first !== "object") return "";
+  const message = (first as { message?: unknown }).message;
+  if (!message || typeof message !== "object") return "";
+  const content = (message as { content?: unknown }).content;
+  return typeof content === "string" ? content : "";
+}
 
+function getAiProvider(env: unknown) {
+  const provider = readEnv(env, "AI_PROVIDER")?.toLowerCase();
+  if (provider === "groq" || provider === "openai") return provider;
+  return readEnv(env, "GROQ_API_KEY") ? "groq" : "openai";
+}
+
+async function generateOpenAiInsight(env: unknown, metrics: unknown): Promise<AiInsight> {
   const openaiKey = readEnv(env, "OPENAI_API_KEY");
   if (!openaiKey) {
-    return jsonResponse(
-      { message: "Configure OPENAI_API_KEY no ambiente do servidor." },
-      { status: 501 },
+    throw new Response(
+      JSON.stringify({ message: "Configure OPENAI_API_KEY no ambiente do servidor." }),
+      { status: 501, headers: { "content-type": "application/json; charset=utf-8" } },
     );
-  }
-
-  const authenticated = await verifySupabaseToken(request, env);
-  if (!authenticated) return jsonResponse({ message: "Sessao invalida." }, { status: 401 });
-
-  const body = (await request.json()) as { metrics?: unknown };
-  if (!body.metrics) {
-    return jsonResponse({ message: "Metricas da loja nao informadas." }, { status: 400 });
   }
 
   const model = readEnv(env, "OPENAI_MODEL") || "gpt-5-mini";
@@ -382,15 +412,14 @@ async function handleAiInsights(request: Request, env: unknown) {
     },
     body: JSON.stringify({
       model,
-      instructions:
-        'Voce e um consultor financeiro para pequenos comercios locais no Brasil. Analise apenas os dados recebidos, seja pratico e nao invente numeros. Responda exclusivamente em JSON valido no formato {"summary":"...","opportunity":"...","risk":"...","actions":["...","...","..."]}.',
+      instructions: AI_SYSTEM_PROMPT,
       input: [
         {
           role: "user",
           content: [
             {
               type: "input_text",
-              text: `Gere um insight objetivo para esta loja. Dados: ${JSON.stringify(body.metrics)}`,
+              text: `Gere um insight objetivo para esta loja. Dados: ${JSON.stringify(metrics)}`,
             },
           ],
         },
@@ -405,12 +434,147 @@ async function handleAiInsights(request: Request, env: unknown) {
       typeof payload?.error?.message === "string"
         ? payload.error.message
         : "Erro ao chamar a OpenAI.";
-    return jsonResponse({ message }, { status: response.status });
+    throw new Response(JSON.stringify({ message }), {
+      status: response.status,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
   }
 
-  const text = extractResponseText(payload);
-  const insight = parseInsightText(text);
-  return jsonResponse(insight);
+  return parseInsightText(extractOpenAiResponseText(payload));
+}
+
+async function generateGroqInsight(env: unknown, metrics: unknown): Promise<AiInsight> {
+  const groqKey = readEnv(env, "GROQ_API_KEY");
+  if (!groqKey) {
+    throw new Response(
+      JSON.stringify({ message: "Configure GROQ_API_KEY no ambiente do servidor." }),
+      { status: 501, headers: { "content-type": "application/json; charset=utf-8" } },
+    );
+  }
+
+  const model = readEnv(env, "GROQ_MODEL") || "llama-3.1-8b-instant";
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${groqKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: AI_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Gere um insight objetivo para esta loja. Dados: ${JSON.stringify(metrics)}`,
+        },
+      ],
+      temperature: 0.2,
+      max_tokens: 700,
+    }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    const message =
+      typeof payload?.error?.message === "string"
+        ? payload.error.message
+        : "Erro ao chamar a Groq.";
+    throw new Response(JSON.stringify({ message }), {
+      status: response.status,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  }
+
+  return parseInsightText(extractChatResponseText(payload));
+}
+
+function generateAiInsight(env: unknown, metrics: unknown) {
+  return getAiProvider(env) === "groq"
+    ? generateGroqInsight(env, metrics)
+    : generateOpenAiInsight(env, metrics);
+}
+
+async function getLatestAiInsightCreatedAt(env: unknown, storeId: string) {
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/ai_insights?store_id=eq.${encodeURIComponent(storeId)}&select=created_at&order=created_at.desc&limit=1`,
+  );
+  if (!response.ok) {
+    throw new Response(
+      JSON.stringify({ message: "Nao foi possivel verificar o limite semanal da IA." }),
+      { status: 500, headers: { "content-type": "application/json; charset=utf-8" } },
+    );
+  }
+  const rows = (await response.json()) as Array<{ created_at?: string }>;
+  return rows[0]?.created_at;
+}
+
+async function saveAiInsightForStore(env: unknown, storeId: string, insight: AiInsight) {
+  const response = await supabaseAdminFetch(env, "/rest/v1/ai_insights?select=*", {
+    method: "POST",
+    prefer: "return=representation",
+    body: JSON.stringify({
+      store_id: storeId,
+      summary: insight.summary,
+      opportunity: insight.opportunity,
+      risk: insight.risk,
+      actions: insight.actions,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Response(
+      JSON.stringify({
+        message: await readErrorMessage(response, "Insight gerado, mas nao foi salvo."),
+      }),
+      { status: response.status, headers: { "content-type": "application/json; charset=utf-8" } },
+    );
+  }
+}
+
+async function handleAiInsights(request: Request, env: unknown) {
+  if (request.method !== "POST") {
+    return jsonResponse({ message: "Metodo nao permitido." }, { status: 405 });
+  }
+
+  const user = await getSupabaseUser(request, env);
+  if (!user) return jsonResponse({ message: "Sessao invalida." }, { status: 401 });
+
+  const body = (await request.json()) as { metrics?: unknown; storeId?: unknown };
+  if (!body.metrics) {
+    return jsonResponse({ message: "Metricas da loja nao informadas." }, { status: 400 });
+  }
+
+  const storeId = typeof body.storeId === "string" ? body.storeId : "";
+  try {
+    if (storeId) {
+      const canAccess = await canAccessStore(env, user.id, storeId);
+      if (!canAccess) {
+        return jsonResponse({ message: "Voce nao tem acesso a esta loja." }, { status: 403 });
+      }
+
+      const latestCreatedAt = await getLatestAiInsightCreatedAt(env, storeId);
+      if (latestCreatedAt) {
+        const nextAllowedAt = new Date(new Date(latestCreatedAt).getTime() + ONE_WEEK_MS);
+        if (Date.now() < nextAllowedAt.getTime()) {
+          return jsonResponse(
+            {
+              message: "O Consultor IA pode gerar um novo insight para esta loja a cada 7 dias.",
+              nextAllowedAt: nextAllowedAt.toISOString(),
+            },
+            { status: 429 },
+          );
+        }
+      }
+    }
+
+    const insight = await generateAiInsight(env, body.metrics);
+    if (storeId) await saveAiInsightForStore(env, storeId, insight);
+    return jsonResponse(insight);
+  } catch (error) {
+    if (error instanceof Response) return error;
+    throw error;
+  }
 }
 
 function isCatastrophicSsrErrorBody(body: string, responseStatus: number): boolean {

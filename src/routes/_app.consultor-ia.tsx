@@ -16,7 +16,6 @@ import {
   getGoals,
   listAiInsights,
   listEntries,
-  saveAiInsight,
   type Entry,
 } from "@/lib/data";
 
@@ -79,7 +78,7 @@ function ConsultorIaPage() {
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ metrics }),
+        body: JSON.stringify({ storeId: store.id, metrics }),
       });
 
       const payload = await response.json();
@@ -87,14 +86,7 @@ function ConsultorIaPage() {
         throw new Error(payload?.message || "Nao foi possivel gerar o insight.");
       }
 
-      const insight = payload as InsightResponse;
-      return saveAiInsight({
-        storeId: store.id,
-        summary: insight.summary,
-        opportunity: insight.opportunity,
-        risk: insight.risk,
-        actions: insight.actions,
-      });
+      return payload as InsightResponse;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ai-insights", store?.id] });
@@ -114,6 +106,10 @@ function ConsultorIaPage() {
 
   const latest = insights[0];
   const metrics = goals ? buildMetrics({ store, goals, entries, monthStart, previousMonth }) : null;
+  const nextAllowedAt = latest
+    ? new Date(parseISO(latest.createdAt).getTime() + 7 * 24 * 60 * 60 * 1000)
+    : null;
+  const weeklyLocked = Boolean(nextAllowedAt && Date.now() < nextAllowedAt.getTime());
 
   return (
     <div className="space-y-5">
@@ -125,10 +121,14 @@ function ConsultorIaPage() {
             size="sm"
             className="gap-2"
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !goals}
+            disabled={mutation.isPending || !goals || weeklyLocked}
           >
             <RefreshCcw className={mutation.isPending ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            {mutation.isPending ? "Analisando..." : "Analisar minha loja"}
+            {mutation.isPending
+              ? "Analisando..."
+              : weeklyLocked && nextAllowedAt
+                ? `Disponivel ${format(nextAllowedAt, "dd/MM", { locale: ptBR })}`
+                : "Analisar minha loja"}
           </Button>
         }
       />
@@ -145,6 +145,11 @@ function ConsultorIaPage() {
                   <Badge variant="outline">
                     {format(parseISO(latest.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
                   </Badge>
+                  {weeklyLocked && nextAllowedAt && (
+                    <Badge variant="secondary">
+                      Novo insight em {format(nextAllowedAt, "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                    </Badge>
+                  )}
                 </div>
                 <InsightBlock icon={Brain} title="Diagnostico" text={latest.summary} />
                 <InsightBlock
