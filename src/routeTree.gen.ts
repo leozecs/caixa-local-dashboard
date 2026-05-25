@@ -17,6 +17,10 @@ import { Route as AppMetasRouteImport } from './routes/_app.metas'
 import { Route as AppLancamentosRouteImport } from './routes/_app.lancamentos'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app.configuracoes'
+import { Route as AppAdminRouteImport } from './routes/_app.admin'
+import { Route as AppAdminLojasRouteImport } from './routes/_app.admin.lojas'
+import { Route as AppAdminAssinaturasRouteImport } from './routes/_app.admin.assinaturas'
+import { Route as AppAdminAlertasRouteImport } from './routes/_app.admin.alertas'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -57,65 +61,109 @@ const AppConfiguracoesRoute = AppConfiguracoesRouteImport.update({
   path: '/configuracoes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAdminRoute = AppAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAdminLojasRoute = AppAdminLojasRouteImport.update({
+  id: '/lojas',
+  path: '/lojas',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminAssinaturasRoute = AppAdminAssinaturasRouteImport.update({
+  id: '/assinaturas',
+  path: '/assinaturas',
+  getParentRoute: () => AppAdminRoute,
+} as any)
+const AppAdminAlertasRoute = AppAdminAlertasRouteImport.update({
+  id: '/alertas',
+  path: '/alertas',
+  getParentRoute: () => AppAdminRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/admin': typeof AppAdminRouteWithChildren
   '/configuracoes': typeof AppConfiguracoesRoute
   '/dashboard': typeof AppDashboardRoute
   '/lancamentos': typeof AppLancamentosRoute
   '/metas': typeof AppMetasRoute
   '/relatorios': typeof AppRelatoriosRoute
+  '/admin/alertas': typeof AppAdminAlertasRoute
+  '/admin/assinaturas': typeof AppAdminAssinaturasRoute
+  '/admin/lojas': typeof AppAdminLojasRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/admin': typeof AppAdminRouteWithChildren
   '/configuracoes': typeof AppConfiguracoesRoute
   '/dashboard': typeof AppDashboardRoute
   '/lancamentos': typeof AppLancamentosRoute
   '/metas': typeof AppMetasRoute
   '/relatorios': typeof AppRelatoriosRoute
+  '/admin/alertas': typeof AppAdminAlertasRoute
+  '/admin/assinaturas': typeof AppAdminAssinaturasRoute
+  '/admin/lojas': typeof AppAdminLojasRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/_app/admin': typeof AppAdminRouteWithChildren
   '/_app/configuracoes': typeof AppConfiguracoesRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/lancamentos': typeof AppLancamentosRoute
   '/_app/metas': typeof AppMetasRoute
   '/_app/relatorios': typeof AppRelatoriosRoute
+  '/_app/admin/alertas': typeof AppAdminAlertasRoute
+  '/_app/admin/assinaturas': typeof AppAdminAssinaturasRoute
+  '/_app/admin/lojas': typeof AppAdminLojasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/login'
+    | '/admin'
     | '/configuracoes'
     | '/dashboard'
     | '/lancamentos'
     | '/metas'
     | '/relatorios'
+    | '/admin/alertas'
+    | '/admin/assinaturas'
+    | '/admin/lojas'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/login'
+    | '/admin'
     | '/configuracoes'
     | '/dashboard'
     | '/lancamentos'
     | '/metas'
     | '/relatorios'
+    | '/admin/alertas'
+    | '/admin/assinaturas'
+    | '/admin/lojas'
   id:
     | '__root__'
     | '/'
     | '/_app'
     | '/login'
+    | '/_app/admin'
     | '/_app/configuracoes'
     | '/_app/dashboard'
     | '/_app/lancamentos'
     | '/_app/metas'
     | '/_app/relatorios'
+    | '/_app/admin/alertas'
+    | '/_app/admin/assinaturas'
+    | '/_app/admin/lojas'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -182,10 +230,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConfiguracoesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/admin/lojas': {
+      id: '/_app/admin/lojas'
+      path: '/lojas'
+      fullPath: '/admin/lojas'
+      preLoaderRoute: typeof AppAdminLojasRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/assinaturas': {
+      id: '/_app/admin/assinaturas'
+      path: '/assinaturas'
+      fullPath: '/admin/assinaturas'
+      preLoaderRoute: typeof AppAdminAssinaturasRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/alertas': {
+      id: '/_app/admin/alertas'
+      path: '/alertas'
+      fullPath: '/admin/alertas'
+      preLoaderRoute: typeof AppAdminAlertasRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
   }
 }
 
+interface AppAdminRouteChildren {
+  AppAdminAlertasRoute: typeof AppAdminAlertasRoute
+  AppAdminAssinaturasRoute: typeof AppAdminAssinaturasRoute
+  AppAdminLojasRoute: typeof AppAdminLojasRoute
+}
+
+const AppAdminRouteChildren: AppAdminRouteChildren = {
+  AppAdminAlertasRoute: AppAdminAlertasRoute,
+  AppAdminAssinaturasRoute: AppAdminAssinaturasRoute,
+  AppAdminLojasRoute: AppAdminLojasRoute,
+}
+
+const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
+  AppAdminRouteChildren,
+)
+
 interface AppRouteChildren {
+  AppAdminRoute: typeof AppAdminRouteWithChildren
   AppConfiguracoesRoute: typeof AppConfiguracoesRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppLancamentosRoute: typeof AppLancamentosRoute
@@ -194,6 +287,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAdminRoute: AppAdminRouteWithChildren,
   AppConfiguracoesRoute: AppConfiguracoesRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppLancamentosRoute: AppLancamentosRoute,
