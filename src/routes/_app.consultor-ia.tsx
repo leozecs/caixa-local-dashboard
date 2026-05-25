@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO, startOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { AlertTriangle, Brain, Lightbulb, RefreshCcw, TrendingUp } from "lucide-react";
+import { Bot, RefreshCcw, Send, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import {
   formatBRL,
   getCurrentStore,
   getGoals,
+  getMonthlyOwnerNote,
   listAiInsights,
   listEntries,
   type Entry,
@@ -67,6 +68,12 @@ function ConsultorIaPage() {
     enabled: Boolean(store?.id),
   });
 
+  const { data: ownerNote, isLoading: loadingOwnerNote } = useQuery({
+    queryKey: ["monthly-owner-note", store?.id, monthStart.toISOString()],
+    queryFn: () => getMonthlyOwnerNote(store!.id, monthStart),
+    enabled: Boolean(store?.id),
+  });
+
   const mutation = useMutation({
     mutationFn: async () => {
       if (!store || !goals) throw new Error("Dados da loja ainda nao carregados.");
@@ -96,7 +103,7 @@ function ConsultorIaPage() {
       toast.error(error instanceof Error ? error.message : "Erro ao gerar insight."),
   });
 
-  if (loadingStore || loadingEntries || loadingInsights) {
+  if (loadingStore || loadingEntries || loadingInsights || loadingOwnerNote) {
     return <div className="text-sm text-muted-foreground">Carregando consultor IA...</div>;
   }
 
@@ -115,120 +122,104 @@ function ConsultorIaPage() {
     <div className="space-y-5">
       <PageHeader
         title="Meu Consultor IA"
-        description="Analise automatica dos numeros da loja com foco em venda, margem e risco."
-        actions={
-          <Button
-            size="sm"
-            className="gap-2"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !goals || weeklyLocked}
-          >
-            <RefreshCcw className={mutation.isPending ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            {mutation.isPending
-              ? "Analisando..."
-              : weeklyLocked && nextAllowedAt
-                ? `Disponivel ${format(nextAllowedAt, "dd/MM", { locale: ptBR })}`
-                : "Analisar minha loja"}
-          </Button>
-        }
+        description="Conversa semanal sobre os numeros da loja, com sua sugestao mensal quando disponivel."
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
-        <Card className="xl:col-span-2 shadow-none">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Insight mais recente</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {latest ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">
-                    {format(parseISO(latest.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
-                  </Badge>
-                  {weeklyLocked && nextAllowedAt && (
-                    <Badge variant="secondary">
-                      Novo insight em {format(nextAllowedAt, "dd/MM/yyyy HH:mm", { locale: ptBR })}
-                    </Badge>
-                  )}
-                </div>
-                <InsightBlock icon={Brain} title="Diagnostico" text={latest.summary} />
-                <InsightBlock
-                  icon={TrendingUp}
-                  title="Maior oportunidade"
-                  text={latest.opportunity}
-                />
-                <InsightBlock icon={AlertTriangle} title="Maior risco" text={latest.risk} />
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Lightbulb className="h-4 w-4 text-primary" />
-                    Acoes recomendadas para 7 dias
-                  </div>
-                  <ul className="space-y-2">
-                    {latest.actions.map((action, index) => (
-                      <li
-                        key={`${action}-${index}`}
-                        className="rounded-md border border-border px-3 py-2 text-sm"
-                      >
-                        {index + 1}. {action}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-md border border-dashed border-border px-4 py-10 text-center">
-                <div className="text-sm font-medium">Nenhum insight gerado ainda.</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  Clique em analisar para gerar o primeiro diagnostico com base nos lancamentos.
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-none">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Base da analise</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            {metrics ? (
-              <>
-                <MetricRow label="Faturamento do mes" value={formatBRL(metrics.current.revenue)} />
-                <MetricRow label="Despesas do mes" value={formatBRL(metrics.current.expenses)} />
-                <MetricRow label="Lucro estimado" value={formatBRL(metrics.current.profit)} />
-                <MetricRow label="Margem" value={`${metrics.current.margin.toFixed(1)}%`} />
-                <MetricRow label="Ticket medio" value={formatBRL(metrics.current.averageTicket)} />
-                <MetricRow label="Meta mensal" value={formatBRL(metrics.goals.revenue)} />
-                <MetricRow
-                  label="Lancamentos analisados"
-                  value={String(metrics.current.entryCount + metrics.previous.entryCount)}
-                />
-              </>
-            ) : (
-              <div className="text-muted-foreground">Metas ainda nao carregadas.</div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="shadow-none">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Historico</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {insights.slice(1).map((insight) => (
-            <div key={insight.id} className="rounded-md border border-border px-3 py-2">
-              <div className="text-xs text-muted-foreground">
-                {format(parseISO(insight.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
-              </div>
-              <div className="mt-1 text-sm">{insight.summary}</div>
+      <Card className="shadow-none overflow-hidden">
+        <CardHeader className="border-b border-border pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-sm font-semibold">Conversa</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              {latest && (
+                <Badge variant="outline">
+                  IA: {format(parseISO(latest.createdAt), "dd/MM HH:mm", { locale: ptBR })}
+                </Badge>
+              )}
+              {weeklyLocked && nextAllowedAt && (
+                <Badge variant="secondary">
+                  Proximo em {format(nextAllowedAt, "dd/MM", { locale: ptBR })}
+                </Badge>
+              )}
             </div>
-          ))}
-          {insights.length <= 1 && (
-            <div className="text-sm text-muted-foreground">Sem historico anterior.</div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4 bg-muted/20 p-4">
+          <ChatBubble
+            align="left"
+            icon={Bot}
+            title="Caixa Local"
+            text="Clique em gerar insight para receber uma leitura grande da semana sobre faturamento, despesas, margem e proximos passos."
+          />
+
+          {ownerNote?.note && (
+            <ChatBubble
+              align="left"
+              icon={UserRound}
+              title="Sugestao mensal do Leo"
+              text={ownerNote.note}
+              meta={format(parseISO(ownerNote.updatedAt), "dd/MM/yyyy", { locale: ptBR })}
+            />
           )}
+
+          {latest ? (
+            <ChatBubble
+              align="left"
+              icon={Bot}
+              title="Insight semanal da IA"
+              text={[
+                latest.summary,
+                `Maior oportunidade: ${latest.opportunity}`,
+                `Maior risco: ${latest.risk}`,
+                `Acoes: ${latest.actions.map((action, index) => `${index + 1}. ${action}`).join(" ")}`,
+              ].join("\n\n")}
+              meta={format(parseISO(latest.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+            />
+          ) : (
+            <ChatBubble
+              align="left"
+              icon={Bot}
+              title="Insight semanal da IA"
+              text="Ainda nao existe insight gerado para esta loja."
+            />
+          )}
+
+          <div className="flex justify-end">
+            <div className="flex max-w-xl items-center gap-2 rounded-md border border-border bg-background p-2">
+              <div className="px-2 text-sm text-muted-foreground">
+                {weeklyLocked && nextAllowedAt
+                  ? `Novo insight disponivel em ${format(nextAllowedAt, "dd/MM/yyyy HH:mm", { locale: ptBR })}.`
+                  : "Gerar insight da minha loja"}
+              </div>
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={() => mutation.mutate()}
+                disabled={mutation.isPending || !goals || weeklyLocked}
+              >
+                {mutation.isPending ? (
+                  <RefreshCcw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                Enviar
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        {metrics ? (
+          <>
+            <MetricCard label="Faturamento" value={formatBRL(metrics.current.revenue)} />
+            <MetricCard label="Despesas" value={formatBRL(metrics.current.expenses)} />
+            <MetricCard label="Lucro" value={formatBRL(metrics.current.profit)} />
+            <MetricCard label="Margem" value={`${metrics.current.margin.toFixed(1)}%`} />
+          </>
+        ) : (
+          <div className="text-sm text-muted-foreground">Metas ainda nao carregadas.</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -311,31 +302,47 @@ function groupByCategory(entries: Entry[], type: "receita" | "despesa") {
     .sort((a, b) => b.amount - a.amount);
 }
 
-function InsightBlock({
+function ChatBubble({
   icon: Icon,
   title,
   text,
+  meta,
+  align,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   text: string;
+  meta?: string;
+  align: "left" | "right";
 }) {
+  const isRight = align === "right";
   return (
-    <div className="rounded-md border border-border px-3 py-3">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <Icon className="h-4 w-4 text-primary" />
-        {title}
+    <div className={isRight ? "flex justify-end" : "flex justify-start"}>
+      <div
+        className={
+          isRight
+            ? "max-w-3xl rounded-md bg-primary px-4 py-3 text-primary-foreground"
+            : "max-w-3xl rounded-md border border-border bg-background px-4 py-3"
+        }
+      >
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Icon className="h-4 w-4" />
+          <span>{title}</span>
+          {meta && <span className="text-xs font-normal opacity-70">{meta}</span>}
+        </div>
+        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed opacity-90">{text}</p>
       </div>
-      <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{text}</p>
     </div>
   );
 }
 
-function MetricRow({ label, value }: { label: string; value: string }) {
+function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium tabular-nums">{value}</span>
-    </div>
+    <Card className="shadow-none">
+      <CardContent className="p-4">
+        <div className="text-xs uppercase text-muted-foreground">{label}</div>
+        <div className="mt-2 text-xl font-semibold tabular-nums">{value}</div>
+      </CardContent>
+    </Card>
   );
 }

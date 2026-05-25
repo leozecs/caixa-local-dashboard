@@ -139,6 +139,16 @@ async function canAccessStore(env: unknown, userId: string, storeId: string) {
   return Boolean(members[0]?.id);
 }
 
+async function isOwner(env: unknown, userId: string) {
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=role&limit=1`,
+  );
+  if (!response.ok) return false;
+  const profiles = (await response.json()) as Array<{ role?: string }>;
+  return profiles[0]?.role === "owner";
+}
+
 async function readErrorMessage(response: Response, fallback: string) {
   try {
     const payload = await response.json();
@@ -532,6 +542,45 @@ async function saveAiInsightForStore(env: unknown, storeId: string, insight: AiI
   }
 }
 
+async function getLatestAdminAiInsightCreatedAt(env: unknown, scope: string) {
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/admin_ai_insights?scope=eq.${encodeURIComponent(scope)}&select=created_at&order=created_at.desc&limit=1`,
+  );
+  if (!response.ok) {
+    throw new Response(
+      JSON.stringify({ message: "Nao foi possivel verificar o limite semanal do admin." }),
+      { status: 500, headers: { "content-type": "application/json; charset=utf-8" } },
+    );
+  }
+  const rows = (await response.json()) as Array<{ created_at?: string }>;
+  return rows[0]?.created_at;
+}
+
+async function saveAdminAiInsight(env: unknown, scope: string, userId: string, insight: AiInsight) {
+  const response = await supabaseAdminFetch(env, "/rest/v1/admin_ai_insights?select=*", {
+    method: "POST",
+    prefer: "return=representation",
+    body: JSON.stringify({
+      scope,
+      summary: insight.summary,
+      opportunity: insight.opportunity,
+      risk: insight.risk,
+      actions: insight.actions,
+      created_by: userId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Response(
+      JSON.stringify({
+        message: await readErrorMessage(response, "Insight do admin gerado, mas nao foi salvo."),
+      }),
+      { status: response.status, headers: { "content-type": "application/json; charset=utf-8" } },
+    );
+  }
+}
+
 async function handleAiInsights(request: Request, env: unknown) {
   if (request.method !== "POST") {
     return jsonResponse({ message: "Metodo nao permitido." }, { status: 405 });
@@ -540,13 +589,39 @@ async function handleAiInsights(request: Request, env: unknown) {
   const user = await getSupabaseUser(request, env);
   if (!user) return jsonResponse({ message: "Sessao invalida." }, { status: 401 });
 
-  const body = (await request.json()) as { metrics?: unknown; storeId?: unknown };
+  const body = (await request.json()) as { metrics?: unknown; storeId?: unknown; scope?: unknown };
   if (!body.metrics) {
     return jsonResponse({ message: "Metricas da loja nao informadas." }, { status: 400 });
   }
 
   const storeId = typeof body.storeId === "string" ? body.storeId : "";
+  const scope = typeof body.scope === "string" ? body.scope : "";
   try {
+    if (scope === "admin_portfolio") {
+      const owner = await isOwner(env, user.id);
+      if (!owner) {
+        return jsonResponse({ message: "Apenas owner pode analisar a carteira." }, { status: 403 });
+      }
+
+      const latestCreatedAt = await getLatestAdminAiInsightCreatedAt(env, "portfolio");
+      if (latestCreatedAt) {
+        const nextAllowedAt = new Date(new Date(latestCreatedAt).getTime() + ONE_WEEK_MS);
+        if (Date.now() < nextAllowedAt.getTime()) {
+          return jsonResponse(
+            {
+              message: "O Consultor IA do admin pode gerar um novo insight a cada 7 dias.",
+              nextAllowedAt: nextAllowedAt.toISOString(),
+            },
+            { status: 429 },
+          );
+        }
+      }
+
+      const insight = await generateAiInsight(env, body.metrics);
+      await saveAdminAiInsight(env, "portfolio", user.id, insight);
+      return jsonResponse(insight);
+    }
+
     if (storeId) {
       const canAccess = await canAccessStore(env, user.id, storeId);
       if (!canAccess) {

@@ -108,6 +108,25 @@ export interface AiInsight {
   createdAt: string;
 }
 
+export interface AdminAiInsight {
+  id: string;
+  scope: string;
+  summary: string;
+  opportunity: string;
+  risk: string;
+  actions: string[];
+  createdAt: string;
+}
+
+export interface MonthlyOwnerNote {
+  id: string;
+  storeId: string;
+  month: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 type StoreRow = {
   id: string;
   name: string;
@@ -159,6 +178,25 @@ type AiInsightDbRow = {
   risk: string;
   actions: string[];
   created_at: string;
+};
+
+type AdminAiInsightDbRow = {
+  id: string;
+  scope: string;
+  summary: string;
+  opportunity: string;
+  risk: string;
+  actions: string[];
+  created_at: string;
+};
+
+type MonthlyOwnerNoteDbRow = {
+  id: string;
+  store_id: string;
+  month: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
 };
 
 const DEFAULT_PLANS: SubscriptionPlan[] = [
@@ -272,6 +310,29 @@ function toAiInsight(row: AiInsightDbRow): AiInsight {
   };
 }
 
+function toAdminAiInsight(row: AdminAiInsightDbRow): AdminAiInsight {
+  return {
+    id: row.id,
+    scope: row.scope,
+    summary: row.summary,
+    opportunity: row.opportunity,
+    risk: row.risk,
+    actions: row.actions || [],
+    createdAt: row.created_at,
+  };
+}
+
+function toMonthlyOwnerNote(row: MonthlyOwnerNoteDbRow): MonthlyOwnerNote {
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    month: row.month,
+    note: row.note,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function isMissingTableError(error: unknown) {
   return (
     typeof error === "object" &&
@@ -319,6 +380,23 @@ export async function listAiInsights(storeId: string): Promise<AiInsight[]> {
   return ((data || []) as AiInsightDbRow[]).map(toAiInsight);
 }
 
+export async function listAdminAiInsights(scope = "portfolio"): Promise<AdminAiInsight[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("admin_ai_insights")
+    .select("id, scope, summary, opportunity, risk, actions, created_at")
+    .eq("scope", scope)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+
+  return ((data || []) as AdminAiInsightDbRow[]).map(toAdminAiInsight);
+}
+
 export async function saveAiInsight(input: Omit<AiInsight, "id" | "createdAt">) {
   const client = requireSupabase();
   const { data, error } = await client
@@ -335,6 +413,45 @@ export async function saveAiInsight(input: Omit<AiInsight, "id" | "createdAt">) 
 
   if (error) throw error;
   return toAiInsight(data as AiInsightDbRow);
+}
+
+export async function getMonthlyOwnerNote(storeId: string, month: Date) {
+  const client = requireSupabase();
+  const monthKey = startOfMonth(month).toISOString().slice(0, 10);
+  const { data, error } = await client
+    .from("monthly_owner_notes")
+    .select("id, store_id, month, note, created_at, updated_at")
+    .eq("store_id", storeId)
+    .eq("month", monthKey)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingTableError(error)) return null;
+    throw error;
+  }
+
+  return data ? toMonthlyOwnerNote(data as MonthlyOwnerNoteDbRow) : null;
+}
+
+export async function saveMonthlyOwnerNote(input: { storeId: string; month: Date; note: string }) {
+  const client = requireSupabase();
+  const monthKey = startOfMonth(input.month).toISOString().slice(0, 10);
+  const { data, error } = await client
+    .from("monthly_owner_notes")
+    .upsert(
+      {
+        store_id: input.storeId,
+        month: monthKey,
+        note: input.note.trim(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "store_id,month" },
+    )
+    .select("id, store_id, month, note, created_at, updated_at")
+    .single();
+
+  if (error) throw error;
+  return toMonthlyOwnerNote(data as MonthlyOwnerNoteDbRow);
 }
 
 export async function saveSubscriptionPlan(input: {
