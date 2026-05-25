@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ADMIN_STORES, formatBRL, getMonthlyHistory } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/_app/admin")({
+export const Route = createFileRoute("/_app/admin/")({
   head: () => ({ meta: [{ title: "Admin — Caixa Local" }] }),
   component: AdminOverview,
 });
