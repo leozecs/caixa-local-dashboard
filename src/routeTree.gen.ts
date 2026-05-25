@@ -17,6 +17,7 @@ import { Route as AppMetasRouteImport } from './routes/_app.metas'
 import { Route as AppLancamentosRouteImport } from './routes/_app.lancamentos'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app.configuracoes'
+import { Route as AppAdminRouteImport } from './routes/_app.admin'
 import { Route as AppAdminIndexRouteImport } from './routes/_app.admin.index'
 import { Route as AppAdminLojasRouteImport } from './routes/_app.admin.lojas'
 import { Route as AppAdminAssinaturasRouteImport } from './routes/_app.admin.assinaturas'
@@ -61,30 +62,36 @@ const AppConfiguracoesRoute = AppConfiguracoesRouteImport.update({
   path: '/configuracoes',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAdminIndexRoute = AppAdminIndexRouteImport.update({
-  id: '/admin/',
-  path: '/admin/',
+const AppAdminRoute = AppAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => AppRoute,
+} as any)
+const AppAdminIndexRoute = AppAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAdminRoute,
 } as any)
 const AppAdminLojasRoute = AppAdminLojasRouteImport.update({
-  id: '/admin/lojas',
-  path: '/admin/lojas',
-  getParentRoute: () => AppRoute,
+  id: '/lojas',
+  path: '/lojas',
+  getParentRoute: () => AppAdminRoute,
 } as any)
 const AppAdminAssinaturasRoute = AppAdminAssinaturasRouteImport.update({
-  id: '/admin/assinaturas',
-  path: '/admin/assinaturas',
-  getParentRoute: () => AppRoute,
+  id: '/assinaturas',
+  path: '/assinaturas',
+  getParentRoute: () => AppAdminRoute,
 } as any)
 const AppAdminAlertasRoute = AppAdminAlertasRouteImport.update({
-  id: '/admin/alertas',
-  path: '/admin/alertas',
-  getParentRoute: () => AppRoute,
+  id: '/alertas',
+  path: '/alertas',
+  getParentRoute: () => AppAdminRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/admin': typeof AppAdminRouteWithChildren
   '/configuracoes': typeof AppConfiguracoesRoute
   '/dashboard': typeof AppDashboardRoute
   '/lancamentos': typeof AppLancamentosRoute
@@ -113,6 +120,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/_app/admin': typeof AppAdminRouteWithChildren
   '/_app/configuracoes': typeof AppConfiguracoesRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/lancamentos': typeof AppLancamentosRoute
@@ -128,6 +136,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/admin'
     | '/configuracoes'
     | '/dashboard'
     | '/lancamentos'
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_app'
     | '/login'
+    | '/_app/admin'
     | '/_app/configuracoes'
     | '/_app/dashboard'
     | '/_app/lancamentos'
@@ -230,59 +240,78 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConfiguracoesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/admin/': {
       id: '/_app/admin/'
-      path: '/admin'
+      path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AppAdminIndexRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppAdminRoute
     }
     '/_app/admin/lojas': {
       id: '/_app/admin/lojas'
-      path: '/admin/lojas'
+      path: '/lojas'
       fullPath: '/admin/lojas'
       preLoaderRoute: typeof AppAdminLojasRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppAdminRoute
     }
     '/_app/admin/assinaturas': {
       id: '/_app/admin/assinaturas'
-      path: '/admin/assinaturas'
+      path: '/assinaturas'
       fullPath: '/admin/assinaturas'
       preLoaderRoute: typeof AppAdminAssinaturasRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppAdminRoute
     }
     '/_app/admin/alertas': {
       id: '/_app/admin/alertas'
-      path: '/admin/alertas'
+      path: '/alertas'
       fullPath: '/admin/alertas'
       preLoaderRoute: typeof AppAdminAlertasRouteImport
-      parentRoute: typeof AppRoute
+      parentRoute: typeof AppAdminRoute
     }
   }
 }
 
-interface AppRouteChildren {
-  AppConfiguracoesRoute: typeof AppConfiguracoesRoute
-  AppDashboardRoute: typeof AppDashboardRoute
-  AppLancamentosRoute: typeof AppLancamentosRoute
-  AppMetasRoute: typeof AppMetasRoute
-  AppRelatoriosRoute: typeof AppRelatoriosRoute
+interface AppAdminRouteChildren {
   AppAdminAlertasRoute: typeof AppAdminAlertasRoute
   AppAdminAssinaturasRoute: typeof AppAdminAssinaturasRoute
   AppAdminLojasRoute: typeof AppAdminLojasRoute
   AppAdminIndexRoute: typeof AppAdminIndexRoute
 }
 
+const AppAdminRouteChildren: AppAdminRouteChildren = {
+  AppAdminAlertasRoute: AppAdminAlertasRoute,
+  AppAdminAssinaturasRoute: AppAdminAssinaturasRoute,
+  AppAdminLojasRoute: AppAdminLojasRoute,
+  AppAdminIndexRoute: AppAdminIndexRoute,
+}
+
+const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
+  AppAdminRouteChildren,
+)
+
+interface AppRouteChildren {
+  AppAdminRoute: typeof AppAdminRouteWithChildren
+  AppConfiguracoesRoute: typeof AppConfiguracoesRoute
+  AppDashboardRoute: typeof AppDashboardRoute
+  AppLancamentosRoute: typeof AppLancamentosRoute
+  AppMetasRoute: typeof AppMetasRoute
+  AppRelatoriosRoute: typeof AppRelatoriosRoute
+}
+
 const AppRouteChildren: AppRouteChildren = {
+  AppAdminRoute: AppAdminRouteWithChildren,
   AppConfiguracoesRoute: AppConfiguracoesRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppLancamentosRoute: AppLancamentosRoute,
   AppMetasRoute: AppMetasRoute,
   AppRelatoriosRoute: AppRelatoriosRoute,
-  AppAdminAlertasRoute: AppAdminAlertasRoute,
-  AppAdminAssinaturasRoute: AppAdminAssinaturasRoute,
-  AppAdminLojasRoute: AppAdminLojasRoute,
-  AppAdminIndexRoute: AppAdminIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

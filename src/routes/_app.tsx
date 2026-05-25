@@ -32,13 +32,6 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app")({
-  beforeLoad: () => {
-    if (typeof window !== "undefined" && !getSession()) {
-      throw Object.assign(new Error("Unauthorized"), {
-        // TanStack Router redirect equivalent: use thrown redirect
-      });
-    }
-  },
   component: AppShell,
 });
 
