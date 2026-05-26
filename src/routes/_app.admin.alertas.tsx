@@ -20,8 +20,8 @@ function Alertas() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Alertas operacionais"
-        description="Eventos da base que merecem atenção da equipe Caixa Local."
+        title="Alertas de assinaturas"
+        description="Vencimentos proximos, pagamentos atrasados e riscos de cobranca."
       />
 
       <Card className="shadow-none">

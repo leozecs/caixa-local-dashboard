@@ -1,12 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
-import { CreditCard, DollarSign, RefreshCcw, XCircle } from "lucide-react";
+import { CreditCard, DollarSign, MessageCircle, RefreshCcw, XCircle } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { MetricCard } from "@/components/metric-card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatBRL, listSubscriptions, type SubscriptionStatus } from "@/lib/data";
+import {
+  defaultBillingMessageTemplate,
+  formatBRL,
+  getAppSetting,
+  listSubscriptions,
+  renderBillingMessage,
+  type SubscriptionStatus,
+} from "@/lib/data";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/admin/assinaturas")({
@@ -16,6 +24,10 @@ export const Route = createFileRoute("/_app/admin/assinaturas")({
 
 function Assinaturas() {
   const { data: subs = [] } = useQuery({ queryKey: ["subscriptions"], queryFn: listSubscriptions });
+  const { data: billingTemplate = defaultBillingMessageTemplate() } = useQuery({
+    queryKey: ["app-setting", "billing_whatsapp_message"],
+    queryFn: () => getAppSetting("billing_whatsapp_message", defaultBillingMessageTemplate()),
+  });
   const mrr = subs
     .filter((sub) => sub.payStatus === "em_dia")
     .reduce((sum, sub) => sum + sub.amount, 0);
@@ -24,7 +36,10 @@ function Assinaturas() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Assinaturas" description="Cobranças, status e MRR da base." />
+      <PageHeader
+        title="Assinaturas"
+        description="Cobranças por WhatsApp, vencimentos e MRR da base."
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard label="MRR" value={formatBRL(mrr)} icon={DollarSign} accent="success" />
@@ -51,8 +66,10 @@ function Assinaturas() {
                   <th>Loja</th>
                   <th>Plano</th>
                   <th className="text-right">Valor</th>
-                  <th>Próxima cobrança</th>
+                  <th>Último pagamento</th>
+                  <th>Próximo pagamento</th>
                   <th>Status</th>
+                  <th className="text-right">Cobrança</th>
                 </tr>
               </thead>
               <tbody>
@@ -67,17 +84,39 @@ function Assinaturas() {
                       {sub.amount > 0 ? formatBRL(sub.amount) : "-"}
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
+                      {sub.lastPayment ? format(parseISO(sub.lastPayment), "dd/MM/yyyy") : "-"}
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
                       {format(parseISO(sub.nextCharge), "dd/MM/yyyy")}
                     </td>
                     <td className="px-4 py-2.5">
                       <PayBadge status={sub.payStatus} />
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <Button variant="outline" size="sm" className="gap-2" asChild>
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(
+                            renderBillingMessage(billingTemplate, {
+                              loja: sub.storeName,
+                              plano: sub.plan,
+                              valor: formatBRL(sub.amount),
+                              vencimento: format(parseISO(sub.nextCharge), "dd/MM/yyyy"),
+                            }),
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" />
+                          Cobrar
+                        </a>
+                      </Button>
                     </td>
                   </tr>
                 ))}
                 {!subs.length && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={7}
                       className="px-4 py-10 text-center text-sm text-muted-foreground"
                     >
                       Nenhuma assinatura cadastrada.

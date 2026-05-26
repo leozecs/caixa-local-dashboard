@@ -1,20 +1,30 @@
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   deleteSubscriptionPlan,
-  formatBRL,
+  formatBRLPrecise,
   saveSubscriptionPlan,
   type SubscriptionPlan,
 } from "@/lib/data";
 
 export function PlansCard({ plans }: { plans: SubscriptionPlan[] }) {
   const queryClient = useQueryClient();
+  const [editing, setEditing] = useState<SubscriptionPlan | null>(null);
+  const [creating, setCreating] = useState(false);
   const mutation = useMutation({
     mutationFn: (payload: FormData) =>
       saveSubscriptionPlan({
@@ -30,6 +40,8 @@ export function PlansCard({ plans }: { plans: SubscriptionPlan[] }) {
       queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
       queryClient.invalidateQueries({ queryKey: ["admin-stores"] });
       toast.success("Plano salvo.");
+      setEditing(null);
+      setCreating(false);
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao salvar plano."),
@@ -41,144 +53,168 @@ export function PlansCard({ plans }: { plans: SubscriptionPlan[] }) {
       queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
       queryClient.invalidateQueries({ queryKey: ["admin-stores"] });
       toast.success("Plano excluido.");
+      setEditing(null);
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao excluir plano."),
   });
 
   return (
-    <Card className="shadow-none">
-      <CardHeader>
-        <CardTitle className="text-sm font-semibold">Planos de assinatura</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <PlanForm
-          title="Novo plano"
-          submitLabel="Criar"
-          defaultSortOrder={plans.length + 1}
-          pending={mutation.isPending}
-          onSubmit={(payload) => mutation.mutate(payload)}
-        />
-
-        <div className="space-y-2">
-          {plans.map((plan) => (
-            <PlanForm
-              key={plan.id}
-              plan={plan}
-              title="Editar plano"
-              submitLabel="Salvar"
-              pending={mutation.isPending || deleteMutation.isPending}
-              onSubmit={(payload) => mutation.mutate(payload)}
-              onDelete={() => {
-                const confirmed = window.confirm(
-                  `Excluir o plano "${plan.name}"? Lojas que ja usam esse nome continuam com historico, mas o plano sai da lista.`,
-                );
-                if (confirmed) deleteMutation.mutate(plan.id);
-              }}
-            />
-          ))}
-          {!plans.length && (
-            <div className="rounded-md border border-border px-3 py-6 text-center text-sm text-muted-foreground">
-              Nenhum plano cadastrado.
-            </div>
-          )}
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Planos de assinatura</h2>
+          <p className="text-sm text-muted-foreground">Edite preço, promessa e disponibilidade.</p>
         </div>
-      </CardContent>
-    </Card>
+        <Button size="sm" className="gap-2" onClick={() => setCreating(true)}>
+          <Plus className="h-4 w-4" />
+          Criar novo plano
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {plans.slice(0, 3).map((plan) => (
+          <Card key={plan.id} className="shadow-none">
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between gap-3">
+                <CardTitle className="text-sm font-semibold">{plan.name}</CardTitle>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => setEditing(plan)}
+                  aria-label={`Editar ${plan.name}`}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="text-xl font-semibold">{formatBRLPrecise(plan.amount)}/mes</div>
+              <p className="min-h-20 text-sm text-muted-foreground leading-relaxed">
+                {plan.description || "Sem descricao comercial."}
+              </p>
+              <div className="text-xs text-muted-foreground">
+                {plan.active ? "Ativo para novas lojas" : "Inativo para novas lojas"}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <PlanDialog
+        open={creating}
+        title="Criar novo plano"
+        defaultSortOrder={plans.length + 1}
+        pending={mutation.isPending}
+        onOpenChange={setCreating}
+        onSubmit={(payload) => mutation.mutate(payload)}
+      />
+      <PlanDialog
+        open={Boolean(editing)}
+        title="Editar plano"
+        plan={editing}
+        pending={mutation.isPending || deleteMutation.isPending}
+        onOpenChange={(open) => !open && setEditing(null)}
+        onSubmit={(payload) => mutation.mutate(payload)}
+        onDelete={() => {
+          if (!editing) return;
+          const confirmed = window.confirm(`Excluir o plano "${editing.name}"?`);
+          if (confirmed) deleteMutation.mutate(editing.id);
+        }}
+      />
+    </>
   );
 }
 
-function PlanForm({
-  plan,
+function PlanDialog({
+  open,
   title,
-  submitLabel,
+  plan,
   defaultSortOrder,
   pending,
+  onOpenChange,
   onSubmit,
   onDelete,
 }: {
-  plan?: SubscriptionPlan;
+  open: boolean;
   title: string;
-  submitLabel: string;
+  plan?: SubscriptionPlan | null;
   defaultSortOrder?: number;
   pending: boolean;
+  onOpenChange: (open: boolean) => void;
   onSubmit: (payload: FormData) => void;
   onDelete?: () => void;
 }) {
   return (
-    <form
-      className="grid grid-cols-1 md:grid-cols-[1fr_130px_90px_auto] gap-3 items-end rounded-md border border-border p-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit(new FormData(event.currentTarget));
-        if (!plan) event.currentTarget.reset();
-      }}
-    >
-      {plan && <input type="hidden" name="id" value={plan.id} />}
-      <Field label={title}>
-        <Input name="name" defaultValue={plan?.name || ""} placeholder="Ex: Essencial" required />
-      </Field>
-      <Field label="Mensalidade">
-        <Input
-          name="amount"
-          type="number"
-          min="0"
-          step="0.01"
-          defaultValue={plan?.amount ?? ""}
-          placeholder="99.99"
-          required
-        />
-      </Field>
-      <Field label="Ordem">
-        <Input
-          name="sortOrder"
-          type="number"
-          min="0"
-          step="1"
-          defaultValue={plan?.sortOrder ?? defaultSortOrder ?? 0}
-        />
-      </Field>
-      <div className="flex items-center gap-2">
-        <Button type="submit" size="sm" className="gap-2" disabled={pending}>
-          {!plan && <Plus className="h-4 w-4" />}
-          {submitLabel}
-        </Button>
-        {plan && (
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            disabled={pending}
-            onClick={onDelete}
-            aria-label="Excluir plano"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
-      <div className="md:col-span-4">
-        <Textarea
-          name="description"
-          defaultValue={plan?.description || ""}
-          placeholder="Beneficios, limites, suporte e promessa comercial do plano"
-          rows={4}
-        />
-      </div>
-      <label className="md:col-span-4 flex items-center gap-2 text-sm">
-        <input
-          name="active"
-          type="checkbox"
-          defaultChecked={plan?.active ?? true}
-          className="h-4 w-4"
-        />
-        Ativo para novas lojas
-      </label>
-      {plan && (
-        <div className="md:col-span-4 text-xs text-muted-foreground">
-          Valor atual: {formatBRL(plan.amount)}
-        </div>
-      )}
-    </form>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit(new FormData(event.currentTarget));
+          }}
+        >
+          {plan && <input type="hidden" name="id" value={plan.id} />}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_140px_100px] gap-3">
+            <Field label="Nome">
+              <Input name="name" defaultValue={plan?.name || ""} required />
+            </Field>
+            <Field label="Mensalidade">
+              <Input
+                name="amount"
+                type="number"
+                min="0"
+                step="0.01"
+                defaultValue={plan?.amount ?? ""}
+                required
+              />
+            </Field>
+            <Field label="Ordem">
+              <Input
+                name="sortOrder"
+                type="number"
+                min="0"
+                step="1"
+                defaultValue={plan?.sortOrder ?? defaultSortOrder ?? 0}
+              />
+            </Field>
+          </div>
+          <Field label="Descricao comercial">
+            <Textarea
+              name="description"
+              defaultValue={plan?.description || ""}
+              rows={6}
+              placeholder="Beneficios, limites, suporte e promessa comercial do plano"
+            />
+          </Field>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              name="active"
+              type="checkbox"
+              defaultChecked={plan?.active ?? true}
+              className="h-4 w-4"
+            />
+            Ativo para novas lojas
+          </label>
+          <DialogFooter className="gap-2">
+            {plan && (
+              <Button type="button" variant="outline" className="mr-auto gap-2" onClick={onDelete}>
+                <Trash2 className="h-4 w-4" />
+                Excluir
+              </Button>
+            )}
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancelar
+            </Button>
+            <Button disabled={pending}>{pending ? "Salvando..." : "Salvar"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

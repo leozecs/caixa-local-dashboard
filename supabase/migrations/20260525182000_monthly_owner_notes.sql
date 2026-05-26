@@ -20,8 +20,17 @@ create table if not exists public.monthly_owner_notes (
   unique (store_id, month)
 );
 
+create table if not exists public.app_settings (
+  key text primary key,
+  value text not null,
+  updated_by uuid references public.profiles(id) on delete set null default auth.uid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.admin_ai_insights enable row level security;
 alter table public.monthly_owner_notes enable row level security;
+alter table public.app_settings enable row level security;
 
 create policy "admin_ai_insights_owner_select"
 on public.admin_ai_insights for select
@@ -54,5 +63,22 @@ on public.monthly_owner_notes for delete
 to authenticated
 using (app_private.is_owner());
 
+create policy "app_settings_owner_select"
+on public.app_settings for select
+to authenticated
+using (app_private.is_owner());
+
+create policy "app_settings_owner_insert"
+on public.app_settings for insert
+to authenticated
+with check (app_private.is_owner());
+
+create policy "app_settings_owner_update"
+on public.app_settings for update
+to authenticated
+using (app_private.is_owner())
+with check (app_private.is_owner());
+
 grant select, insert on public.admin_ai_insights to authenticated;
 grant select, insert, update, delete on public.monthly_owner_notes to authenticated;
+grant select, insert, update on public.app_settings to authenticated;

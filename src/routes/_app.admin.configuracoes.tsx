@@ -1,64 +1,87 @@
+import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Save } from "lucide-react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { PlansCard } from "@/components/admin/plans-card";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listSubscriptionPlans } from "@/lib/data";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  defaultBillingMessageTemplate,
+  getAppSetting,
+  listSubscriptionPlans,
+  saveAppSetting,
+} from "@/lib/data";
 
 export const Route = createFileRoute("/_app/admin/configuracoes")({
   head: () => ({ meta: [{ title: "Config admin - Caixa Local" }] }),
   component: AdminConfigPage,
 });
 
-const SALES_SUMMARY = [
-  {
-    name: "Economico",
-    price: "R$ 59,99/mes",
-    pitch:
-      "Entrada acessivel para a loja organizar receitas, despesas, metas e relatorios basicos sem depender de planilha.",
-  },
-  {
-    name: "Essencial",
-    price: "R$ 99,99/mes",
-    pitch:
-      "Plano principal: adiciona alertas e historico comparativo para o comerciante agir antes de perder margem.",
-  },
-  {
-    name: "Gestao Local",
-    price: "R$ 149,99/mes",
-    pitch:
-      "Plano consultivo: entrega leitura interpretada, pontos de atencao, sugestao mensal e Meu Consultor IA.",
-  },
-];
-
 function AdminConfigPage() {
+  const queryClient = useQueryClient();
+  const [billingMessage, setBillingMessage] = useState(defaultBillingMessageTemplate());
   const { data: plans = [] } = useQuery({
     queryKey: ["subscription-plans"],
-    queryFn: () => listSubscriptionPlans(),
+    queryFn: () => listSubscriptionPlans({ activeOnly: true }),
+  });
+  const { data: savedBillingMessage } = useQuery({
+    queryKey: ["app-setting", "billing_whatsapp_message"],
+    queryFn: () => getAppSetting("billing_whatsapp_message", defaultBillingMessageTemplate()),
+  });
+  const settingMutation = useMutation({
+    mutationFn: () => saveAppSetting("billing_whatsapp_message", billingMessage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["app-setting", "billing_whatsapp_message"] });
+      toast.success("Texto de cobranca salvo.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar texto."),
   });
 
+  useEffect(() => {
+    if (savedBillingMessage) setBillingMessage(savedBillingMessage);
+  }, [savedBillingMessage]);
+
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="space-y-5 max-w-6xl">
       <PageHeader
         title="Config admin"
-        description="Planos, precos e argumentos comerciais usados no cadastro de lojas."
+        description="Planos comerciais e texto padrao usado na cobranca por WhatsApp."
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {SALES_SUMMARY.map((plan) => (
-          <Card key={plan.name} className="shadow-none">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold">{plan.name}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="text-lg font-semibold">{plan.price}</div>
-              <p className="text-sm text-muted-foreground leading-relaxed">{plan.pitch}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
       <PlansCard plans={plans} />
+
+      <Card className="shadow-none">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">Texto da cobranca automatizada</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            value={billingMessage}
+            onChange={(event) => setBillingMessage(event.target.value)}
+            rows={5}
+            placeholder={defaultBillingMessageTemplate()}
+          />
+          <div className="text-xs text-muted-foreground">
+            Variaveis disponiveis: {"{{loja}}"}, {"{{responsavel}}"}, {"{{plano}}"}, {"{{valor}}"} e{" "}
+            {"{{vencimento}}"}.
+          </div>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              className="gap-2"
+              onClick={() => settingMutation.mutate()}
+              disabled={settingMutation.isPending}
+            >
+              <Save className="h-4 w-4" />
+              {settingMutation.isPending ? "Salvando..." : "Salvar texto"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

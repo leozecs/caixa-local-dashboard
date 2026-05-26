@@ -67,6 +67,7 @@ export interface SubscriptionRow {
   plan: Plan;
   amount: number;
   nextCharge: string;
+  lastPayment: string | null;
   payStatus: SubscriptionStatus;
 }
 
@@ -161,6 +162,12 @@ type SubscriptionDbRow = {
   stores?: { name: string } | { name: string }[] | null;
 };
 
+type BillingRecordDbRow = {
+  store_id: string;
+  paid_at: string | null;
+  status: "pago" | "pendente" | "atrasado" | "cancelado";
+};
+
 type SubscriptionPlanDbRow = {
   id: string;
   name: string;
@@ -198,6 +205,9 @@ type MonthlyOwnerNoteDbRow = {
   created_at: string;
   updated_at: string;
 };
+
+const DEFAULT_BILLING_MESSAGE =
+  "Ola, {{responsavel}}. Passando para lembrar da mensalidade do Caixa Local da loja {{loja}}. Plano {{plano}}, valor {{valor}}, vencimento em {{vencimento}}. Posso te ajudar com o pagamento?";
 
 const DEFAULT_PLANS: SubscriptionPlan[] = [
   {
@@ -590,6 +600,12 @@ export async function updateStore(id: string, input: Partial<Store>) {
   return hydrateStore(data as StoreRow);
 }
 
+export async function deleteStore(id: string) {
+  const client = requireSupabase();
+  const { error } = await client.from("stores").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function updateStorePlan(input: { storeId: string; plan: Plan; status: StoreStatus }) {
   const client = requireSupabase();
   const planAmount = await getPlanAmount(input.plan);
@@ -744,6 +760,24 @@ export async function listSubscriptions(): Promise<SubscriptionRow[]> {
 
   if (error) throw error;
 
+  const storeIds = ((data || []) as SubscriptionDbRow[]).map((row) => row.store_id);
+  const lastPayments = new Map<string, string>();
+  if (storeIds.length) {
+    const { data: billingRows, error: billingError } = await client
+      .from("billing_records")
+      .select("store_id, paid_at, status")
+      .in("store_id", storeIds)
+      .not("paid_at", "is", null)
+      .order("paid_at", { ascending: false });
+
+    if (billingError && !isMissingTableError(billingError)) throw billingError;
+    ((billingRows || []) as BillingRecordDbRow[]).forEach((row) => {
+      if (row.paid_at && !lastPayments.has(row.store_id)) {
+        lastPayments.set(row.store_id, row.paid_at);
+      }
+    });
+  }
+
   return ((data || []) as SubscriptionDbRow[]).map((row) => ({
     id: row.id,
     storeId: row.store_id,
@@ -751,6 +785,7 @@ export async function listSubscriptions(): Promise<SubscriptionRow[]> {
     plan: row.plan,
     amount: row.amount / 100,
     nextCharge: row.next_charge_date,
+    lastPayment: lastPayments.get(row.store_id) || null,
     payStatus: row.status,
   }));
 }
@@ -791,10 +826,103 @@ export async function listStoreMonthlyResults(month = new Date()): Promise<Store
   });
 }
 
+export async function getAppSetting(key: string, fallback = "") {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("app_settings")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingTableError(error)) return fallback;
+    throw error;
+  }
+
+  return typeof data?.value === "string" ? data.value : fallback;
+}
+
+export async function saveAppSetting(key: string, value: string) {
+  const client = requireSupabase();
+  const { error } = await client.from("app_settings").upsert(
+    {
+      key,
+      value,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "key" },
+  );
+
+  if (error) throw error;
+}
+
+export function defaultBillingMessageTemplate() {
+  return DEFAULT_BILLING_MESSAGE;
+}
+
+export function renderBillingMessage(
+  template: string,
+  input: {
+    loja: string;
+    responsavel?: string;
+    plano: string;
+    valor: string;
+    vencimento: string;
+  },
+) {
+  return template
+    .replaceAll("{{loja}}", input.loja)
+    .replaceAll("{{responsavel}}", input.responsavel || input.loja)
+    .replaceAll("{{plano}}", input.plano)
+    .replaceAll("{{valor}}", input.valor)
+    .replaceAll("{{vencimento}}", input.vencimento);
+}
+
 export async function listAdminAlerts(): Promise<AdminAlert[]> {
   const stores = await listStores();
   const subscriptions = await listSubscriptions();
   const alerts: AdminAlert[] = [];
+  const now = new Date();
+
+  subscriptions
+    .filter((subscription) => subscription.payStatus !== "cancelada")
+    .forEach((subscription) => {
+      const dueDate = parseISO(subscription.nextCharge);
+      const daysToDue = Math.ceil((dueDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+
+      if (subscription.payStatus === "em_atraso" || daysToDue < 0) {
+        alerts.push({
+          id: `billing-overdue-${subscription.id}`,
+          severity: "critico",
+          store: subscription.storeName,
+          message: `Assinatura vencida em ${format(dueDate, "dd/MM/yyyy", { locale: ptBR })}.`,
+          date: subscription.nextCharge,
+        });
+        return;
+      }
+
+      if (daysToDue <= 5) {
+        alerts.push({
+          id: `billing-due-${subscription.id}`,
+          severity: "atencao",
+          store: subscription.storeName,
+          message: `Proximo pagamento em ${format(dueDate, "dd/MM/yyyy", { locale: ptBR })}.`,
+          date: subscription.nextCharge,
+        });
+      }
+    });
+
+  if (!alerts.length) {
+    alerts.push({
+      id: "all-good",
+      severity: "info",
+      store: "Base Caixa Local",
+      message: "Nenhum vencimento proximo ou assinatura em atraso.",
+      date: new Date().toISOString(),
+    });
+  }
+
+  return alerts;
 
   stores.forEach((store) => {
     if (store.risk === "critico") {

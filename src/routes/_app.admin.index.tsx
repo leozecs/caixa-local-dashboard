@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, CircleDollarSign } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatBRL, listStoreMonthlyResults } from "@/lib/data";
+import { MetricCard } from "@/components/metric-card";
+import { formatBRL, listAdminAlerts, listStoreMonthlyResults } from "@/lib/data";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/admin/")({
@@ -16,13 +18,61 @@ function AdminOverview() {
     queryKey: ["admin-store-monthly-results"],
     queryFn: () => listStoreMonthlyResults(),
   });
+  const { data: alerts = [] } = useQuery({
+    queryKey: ["admin-alerts"],
+    queryFn: listAdminAlerts,
+  });
+  const totals = rows.reduce(
+    (acc, row) => ({
+      revenue: acc.revenue + row.revenue,
+      expenses: acc.expenses + row.expenses,
+      profit: acc.profit + row.profit,
+    }),
+    { revenue: 0, expenses: 0, profit: 0 },
+  );
+  const activeStores = rows.filter((row) => row.status === "ativa").length;
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Financeiro das lojas"
-        description="Entrada mensal, saida mensal e lucro por loja."
+        title="Visao geral"
+        description="Resumo operacional para decidir quais lojas e cobrancas atacar primeiro."
       />
+
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <MetricCard label="Entrada mensal" value={formatBRL(totals.revenue)} icon={ArrowUpRight} />
+        <MetricCard
+          label="Saida mensal"
+          value={formatBRL(totals.expenses)}
+          icon={ArrowDownRight}
+          accent="expense"
+        />
+        <MetricCard
+          label="Lucro da base"
+          value={formatBRL(totals.profit)}
+          icon={CircleDollarSign}
+          accent={totals.profit >= 0 ? "success" : "expense"}
+        />
+        <MetricCard
+          label="Lojas ativas"
+          value={`${activeStores}/${rows.length}`}
+          icon={AlertTriangle}
+        />
+      </div>
+
+      <Card className="shadow-none">
+        <CardContent className="p-4">
+          <div className="mb-3 text-sm font-semibold">Prioridades de hoje</div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+            {alerts.slice(0, 3).map((alert) => (
+              <div key={alert.id} className="rounded-md border border-border px-3 py-2">
+                <div className="text-sm font-medium">{alert.store}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{alert.message}</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="shadow-none">
         <CardContent className="p-0">

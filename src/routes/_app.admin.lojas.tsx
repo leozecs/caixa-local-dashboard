@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Eye, Plus, Search } from "lucide-react";
+import { Eye, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,10 +27,13 @@ import {
 import { Label } from "@/components/ui/label";
 import {
   createStore,
+  deleteStore,
   formatBRL,
   listStores,
   listSubscriptionPlans,
+  updateStore,
   updateStorePlan,
+  type Store,
   type Plan,
   type StoreStatus,
   type SubscriptionPlan,
@@ -47,6 +50,7 @@ function AdminLojas() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("todos");
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Store | null>(null);
   const { data: stores = [] } = useQuery({ queryKey: ["admin-stores"], queryFn: listStores });
   const { data: plans = [] } = useQuery({
     queryKey: ["subscription-plans", "active"],
@@ -73,6 +77,33 @@ function AdminLojas() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao atualizar plano."),
+  });
+  const editMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: Partial<Store> }) => {
+      const updated = await updateStore(id, payload);
+      if (payload.plan && payload.status) {
+        await updateStorePlan({ storeId: id, plan: payload.plan, status: payload.status });
+      }
+      return updated;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-stores"] });
+      queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+      toast.success("Loja atualizada.");
+      setEditing(null);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar loja."),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: deleteStore,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-stores"] });
+      queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+      toast.success("Loja excluida.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao excluir loja."),
   });
 
   const filtered = useMemo(() => {
@@ -210,12 +241,35 @@ function AdminLojas() {
                     <td className="px-4 py-2.5">
                       <RiskBadge risk={store.risk} />
                     </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <Button variant="outline" size="sm" className="gap-1.5" asChild>
-                        <Link to="/dashboard">
-                          <Eye className="h-3.5 w-3.5" /> Ver loja
-                        </Link>
-                      </Button>
+                    <td className="px-4 py-2.5">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                          <Link to="/dashboard">
+                            <Eye className="h-3.5 w-3.5" /> Ver loja
+                          </Link>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setEditing(store)}
+                          aria-label="Editar loja"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          disabled={deleteMutation.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Excluir a loja "${store.name}"?`)) {
+                              deleteMutation.mutate(store.id);
+                            }
+                          }}
+                          aria-label="Excluir loja"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -241,6 +295,13 @@ function AdminLojas() {
         saving={mutation.isPending}
         onOpenChange={setCreating}
         onSubmit={(data) => mutation.mutate(data)}
+      />
+      <EditStoreDialog
+        store={editing}
+        plans={plans}
+        saving={editMutation.isPending}
+        onOpenChange={(open) => !open && setEditing(null)}
+        onSubmit={(id, payload) => editMutation.mutate({ id, payload })}
       />
     </div>
   );
@@ -355,6 +416,97 @@ function CreateStoreDialog({
             <Button disabled={saving}>{saving ? "Salvando..." : "Cadastrar"}</Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditStoreDialog({
+  store,
+  plans,
+  saving,
+  onOpenChange,
+  onSubmit,
+}: {
+  store: Store | null;
+  plans: SubscriptionPlan[];
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (id: string, payload: Partial<Store>) => void;
+}) {
+  return (
+    <Dialog open={Boolean(store)} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar loja</DialogTitle>
+        </DialogHeader>
+        {store && (
+          <form
+            className="grid gap-3 md:grid-cols-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              onSubmit(store.id, {
+                name: String(form.get("name") || ""),
+                owner: String(form.get("owner") || ""),
+                segment: String(form.get("segment") || ""),
+                city: String(form.get("city") || ""),
+                cnpj: String(form.get("cnpj") || "") || null,
+                plan: String(form.get("plan") || store.plan),
+                status: String(form.get("status") || store.status) as StoreStatus,
+              });
+            }}
+          >
+            <Field label="Nome">
+              <Input name="name" defaultValue={store.name} required />
+            </Field>
+            <Field label="Responsavel">
+              <Input name="owner" defaultValue={store.owner} required />
+            </Field>
+            <Field label="Segmento">
+              <Input name="segment" defaultValue={store.segment} required />
+            </Field>
+            <Field label="Cidade">
+              <Input name="city" defaultValue={store.city} required />
+            </Field>
+            <Field label="Plano">
+              <Select name="plan" defaultValue={store.plan}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {plans.map((plan) => (
+                    <SelectItem key={plan.id} value={plan.name}>
+                      {plan.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select name="status" defaultValue={store.status}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="trial">Trial</SelectItem>
+                  <SelectItem value="ativa">Ativa</SelectItem>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="cancelada">Cancelada</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="CNPJ">
+              <Input name="cnpj" defaultValue={store.cnpj || ""} />
+            </Field>
+            <DialogFooter className="md:col-span-2">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancelar
+              </Button>
+              <Button disabled={saving}>{saving ? "Salvando..." : "Salvar alteracoes"}</Button>
+            </DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );
