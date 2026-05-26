@@ -32,6 +32,16 @@ alter table public.admin_ai_insights enable row level security;
 alter table public.monthly_owner_notes enable row level security;
 alter table public.app_settings enable row level security;
 
+drop policy if exists "admin_ai_insights_owner_select" on public.admin_ai_insights;
+drop policy if exists "admin_ai_insights_owner_insert" on public.admin_ai_insights;
+drop policy if exists "monthly_owner_notes_select_by_store" on public.monthly_owner_notes;
+drop policy if exists "monthly_owner_notes_owner_insert" on public.monthly_owner_notes;
+drop policy if exists "monthly_owner_notes_owner_update" on public.monthly_owner_notes;
+drop policy if exists "monthly_owner_notes_owner_delete" on public.monthly_owner_notes;
+drop policy if exists "app_settings_owner_select" on public.app_settings;
+drop policy if exists "app_settings_owner_insert" on public.app_settings;
+drop policy if exists "app_settings_owner_update" on public.app_settings;
+
 create policy "admin_ai_insights_owner_select"
 on public.admin_ai_insights for select
 to authenticated
