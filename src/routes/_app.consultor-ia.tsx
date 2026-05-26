@@ -88,7 +88,7 @@ function ConsultorIaPage() {
         body: JSON.stringify({ storeId: store.id, metrics }),
       });
 
-      const payload = await response.json();
+      const payload = await readJsonResponse(response);
       if (!response.ok) {
         throw new Error(payload?.message || "Nao foi possivel gerar o insight.");
       }
@@ -222,6 +222,17 @@ function ConsultorIaPage() {
       </div>
     </div>
   );
+}
+
+async function readJsonResponse(response: Response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(
+      "Servidor retornou uma resposta invalida. Tente novamente em alguns instantes.",
+    );
+  }
 }
 
 async function getAccessToken() {

@@ -386,6 +386,33 @@ function extractOpenAiResponseText(payload: unknown) {
     .join("\n");
 }
 
+function buildZeroRevenueInsight(metrics: unknown): AiInsight | null {
+  const current =
+    metrics && typeof metrics === "object" && "current" in metrics
+      ? (metrics as { current?: Record<string, unknown> }).current
+      : undefined;
+  const revenue = Number(current?.revenue ?? 0);
+  const expenses = Number(current?.expenses ?? 0);
+
+  if (revenue > 0) return null;
+
+  return {
+    summary:
+      "Ainda nao existe faturamento registrado neste periodo. Isso significa que o Caixa Local ainda nao tem base suficiente para interpretar vendas, margem e crescimento com confianca. Nesta semana, o foco principal e criar uma rotina de registro para transformar a loja em um painel confiavel.",
+    opportunity:
+      "A maior oportunidade agora e organizar o primeiro ciclo de dados: registrar toda venda no dia, separar formas de pagamento e cadastrar as despesas fixas para enxergar o ponto de equilibrio.",
+    risk:
+      expenses > 0
+        ? "Existem despesas registradas sem receita correspondente. Pode ser falta de lancamento das vendas ou sinal de caixa negativo; os dois cenarios precisam ser tratados antes de qualquer decisao comercial."
+        : "Sem receitas e sem despesas registradas, o principal risco e tomar decisao no escuro. O sistema precisa de pelo menos alguns dias de lancamentos para apontar onde economizar ou vender mais.",
+    actions: [
+      "Registre todas as vendas dos proximos 7 dias, mesmo que sejam valores pequenos.",
+      "Cadastre aluguel, produtos, taxas, comissoes e outras despesas fixas do mes.",
+      "Defina metas iniciais de faturamento e limite de despesas para ativar alertas uteis.",
+    ],
+  };
+}
+
 function extractChatResponseText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
   const choices = (payload as { choices?: unknown }).choices;
@@ -643,12 +670,16 @@ async function handleAiInsights(request: Request, env: unknown) {
       }
     }
 
-    const insight = await generateAiInsight(env, body.metrics);
+    const insight =
+      buildZeroRevenueInsight(body.metrics) ?? (await generateAiInsight(env, body.metrics));
     if (storeId) await saveAiInsightForStore(env, storeId, insight);
     return jsonResponse(insight);
   } catch (error) {
     if (error instanceof Response) return error;
-    throw error;
+    return jsonResponse(
+      { message: error instanceof Error ? error.message : "Erro ao gerar insight." },
+      { status: 500 },
+    );
   }
 }
 

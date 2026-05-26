@@ -18,6 +18,7 @@ import { Route as AppLancamentosRouteImport } from './routes/_app.lancamentos'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppConsultorIaRouteImport } from './routes/_app.consultor-ia'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app.configuracoes'
+import { Route as AppAlertasRouteImport } from './routes/_app.alertas'
 import { Route as AppAdminRouteImport } from './routes/_app.admin'
 import { Route as AppAdminIndexRouteImport } from './routes/_app.admin.index'
 import { Route as AppAdminLojasRouteImport } from './routes/_app.admin.lojas'
@@ -70,6 +71,11 @@ const AppConfiguracoesRoute = AppConfiguracoesRouteImport.update({
   path: '/configuracoes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAlertasRoute = AppAlertasRouteImport.update({
+  id: '/alertas',
+  path: '/alertas',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAdminRoute = AppAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -110,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/admin': typeof AppAdminRouteWithChildren
+  '/alertas': typeof AppAlertasRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/consultor-ia': typeof AppConsultorIaRoute
   '/dashboard': typeof AppDashboardRoute
@@ -126,6 +133,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/alertas': typeof AppAlertasRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/consultor-ia': typeof AppConsultorIaRoute
   '/dashboard': typeof AppDashboardRoute
@@ -145,6 +153,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/_app/admin': typeof AppAdminRouteWithChildren
+  '/_app/alertas': typeof AppAlertasRoute
   '/_app/configuracoes': typeof AppConfiguracoesRoute
   '/_app/consultor-ia': typeof AppConsultorIaRoute
   '/_app/dashboard': typeof AppDashboardRoute
@@ -164,6 +173,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/admin'
+    | '/alertas'
     | '/configuracoes'
     | '/consultor-ia'
     | '/dashboard'
@@ -180,6 +190,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/alertas'
     | '/configuracoes'
     | '/consultor-ia'
     | '/dashboard'
@@ -198,6 +209,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/_app/admin'
+    | '/_app/alertas'
     | '/_app/configuracoes'
     | '/_app/consultor-ia'
     | '/_app/dashboard'
@@ -283,6 +295,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConfiguracoesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/alertas': {
+      id: '/_app/alertas'
+      path: '/alertas'
+      fullPath: '/alertas'
+      preLoaderRoute: typeof AppAlertasRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/admin': {
       id: '/_app/admin'
       path: '/admin'
@@ -359,6 +378,7 @@ const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppAdminRoute: typeof AppAdminRouteWithChildren
+  AppAlertasRoute: typeof AppAlertasRoute
   AppConfiguracoesRoute: typeof AppConfiguracoesRoute
   AppConsultorIaRoute: typeof AppConsultorIaRoute
   AppDashboardRoute: typeof AppDashboardRoute
@@ -369,6 +389,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAdminRoute: AppAdminRouteWithChildren,
+  AppAlertasRoute: AppAlertasRoute,
   AppConfiguracoesRoute: AppConfiguracoesRoute,
   AppConsultorIaRoute: AppConsultorIaRoute,
   AppDashboardRoute: AppDashboardRoute,

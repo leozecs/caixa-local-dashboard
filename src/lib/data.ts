@@ -128,6 +128,24 @@ export interface MonthlyOwnerNote {
   updatedAt: string;
 }
 
+export interface StoreOperationalAlert {
+  id: string;
+  type: "margin" | "revenue_goal" | "expense_goal";
+  severity: "atencao" | "critico";
+  title: string;
+  message: string;
+}
+
+export interface StoreDailyResult {
+  storeId: string;
+  storeName: string;
+  owner: string;
+  plan: Plan;
+  revenue: number;
+  expenses: number;
+  profit: number;
+}
+
 type StoreRow = {
   id: string;
   name: string;
@@ -209,6 +227,9 @@ type MonthlyOwnerNoteDbRow = {
 const DEFAULT_BILLING_MESSAGE =
   "Ola, {{responsavel}}. Passando para lembrar da mensalidade do Caixa Local da loja {{loja}}. Plano {{plano}}, valor {{valor}}, vencimento em {{vencimento}}. Posso te ajudar com o pagamento?";
 
+const DEFAULT_DAILY_CLOSING_MESSAGE =
+  "Ola, {{responsavel}}. Fechamento de hoje da {{loja}}: entradas {{entrada}}, saidas {{saida}} e lucro {{lucro}}. Qualquer ponto fora do esperado, me chama aqui.";
+
 const DEFAULT_PLANS: SubscriptionPlan[] = [
   {
     id: "default-economico",
@@ -249,6 +270,14 @@ export function formatBRL(value: number) {
 
 export function formatBRLPrecise(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
+export function planHasAlerts(plan: Plan) {
+  const normalized = plan
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  return normalized.includes("essencial") || normalized.includes("gestao local");
 }
 
 function monthRange(month = new Date()) {
@@ -703,7 +732,7 @@ export async function getGoals(storeId: string, month = new Date()): Promise<Goa
         margin: Number(data.margin),
         maxExpenses: data.max_expenses / 100,
       }
-    : { revenue: 45000, margin: 22, maxExpenses: 30000 };
+    : { revenue: 0, margin: 0, maxExpenses: 0 };
 }
 
 export async function saveGoals(storeId: string, goals: Goals, month = new Date()) {
@@ -878,8 +907,124 @@ export function renderBillingMessage(
     .replaceAll("{{vencimento}}", input.vencimento);
 }
 
-export async function listAdminAlerts(): Promise<AdminAlert[]> {
+export function defaultDailyClosingMessageTemplate() {
+  return DEFAULT_DAILY_CLOSING_MESSAGE;
+}
+
+export function renderDailyClosingMessage(
+  template: string,
+  input: {
+    loja: string;
+    responsavel?: string;
+    entrada: string;
+    saida: string;
+    lucro: string;
+    data: string;
+  },
+) {
+  return template
+    .replaceAll("{{loja}}", input.loja)
+    .replaceAll("{{responsavel}}", input.responsavel || input.loja)
+    .replaceAll("{{entrada}}", input.entrada)
+    .replaceAll("{{saida}}", input.saida)
+    .replaceAll("{{lucro}}", input.lucro)
+    .replaceAll("{{data}}", input.data);
+}
+
+export async function listDailyStoreResults(date = new Date()): Promise<StoreDailyResult[]> {
+  const client = requireSupabase();
   const stores = await listStores();
+  const dayStart = date.toISOString().slice(0, 10);
+  const nextDay = new Date(date);
+  nextDay.setDate(nextDay.getDate() + 1);
+
+  const { data, error } = await client
+    .from("financial_entries")
+    .select("store_id, type, amount")
+    .gte("entry_date", dayStart)
+    .lt("entry_date", nextDay.toISOString().slice(0, 10));
+
+  if (error) throw error;
+
+  const totals = new Map<string, { revenue: number; expenses: number }>();
+  (data || []).forEach((row) => {
+    const entry = row as Pick<EntryRow, "store_id" | "type" | "amount">;
+    const current = totals.get(entry.store_id) || { revenue: 0, expenses: 0 };
+    if (entry.type === "receita") current.revenue += entry.amount / 100;
+    else current.expenses += entry.amount / 100;
+    totals.set(entry.store_id, current);
+  });
+
+  return stores.map((store) => {
+    const total = totals.get(store.id) || { revenue: 0, expenses: 0 };
+    return {
+      storeId: store.id,
+      storeName: store.name,
+      owner: store.owner,
+      plan: store.plan,
+      revenue: total.revenue,
+      expenses: total.expenses,
+      profit: total.revenue - total.expenses,
+    };
+  });
+}
+
+export async function listStoreOperationalAlerts(
+  storeId: string,
+  month = new Date(),
+): Promise<StoreOperationalAlert[]> {
+  const store = (await listStores()).find((item) => item.id === storeId);
+  if (!store || !planHasAlerts(store.plan)) return [];
+
+  const goals = await getGoals(storeId, month);
+  const range = monthRange(month);
+  const entries = await listEntries(storeId, range.start, range.end);
+  const revenue = sumEntries(entries, "receita");
+  const expenses = sumEntries(entries, "despesa");
+  const profit = revenue - expenses;
+  const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  const alerts: StoreOperationalAlert[] = [];
+
+  if (goals.margin > 0 && revenue > 0 && margin < goals.margin) {
+    alerts.push({
+      id: "margin-low",
+      type: "margin",
+      severity: margin < goals.margin * 0.75 ? "critico" : "atencao",
+      title: "Margem abaixo da meta",
+      message: `Margem atual de ${margin.toFixed(1)}% contra meta de ${goals.margin.toFixed(1)}%.`,
+    });
+  }
+
+  if (goals.revenue > 0) {
+    const today = new Date();
+    const daysInMonth = endOfMonth(month).getDate();
+    const elapsedDays = Math.min(today.getDate(), daysInMonth);
+    const expectedRevenue = goals.revenue * (elapsedDays / daysInMonth);
+    if (revenue < expectedRevenue * 0.85) {
+      alerts.push({
+        id: "revenue-goal-behind",
+        type: "revenue_goal",
+        severity: revenue < expectedRevenue * 0.6 ? "critico" : "atencao",
+        title: "Faturamento abaixo da meta",
+        message: `Faturamento atual de ${formatBRL(revenue)}; ritmo esperado para hoje: ${formatBRL(expectedRevenue)}.`,
+      });
+    }
+  }
+
+  if (goals.maxExpenses > 0 && expenses >= goals.maxExpenses * 0.85) {
+    alerts.push({
+      id: "expenses-near-limit",
+      type: "expense_goal",
+      severity: expenses >= goals.maxExpenses ? "critico" : "atencao",
+      title: "Despesas perto do limite",
+      message: `Despesas em ${formatBRL(expenses)} de um limite mensal de ${formatBRL(goals.maxExpenses)}.`,
+    });
+  }
+
+  return alerts;
+}
+
+export async function listAdminAlerts(): Promise<AdminAlert[]> {
   const subscriptions = await listSubscriptions();
   const alerts: AdminAlert[] = [];
   const now = new Date();
@@ -923,9 +1068,29 @@ export async function listAdminAlerts(): Promise<AdminAlert[]> {
   }
 
   return alerts;
+}
 
-  stores.forEach((store) => {
-    if (store.risk === "critico") {
+async function hydrateStore(row: StoreRow): Promise<Store> {
+  const entries = await listEntries(row.id);
+  const goals = await getGoals(row.id).catch(() => undefined);
+  const monthRevenue = sumEntries(entries, "receita");
+
+  return {
+    id: row.id,
+    name: row.name,
+    owner: row.owner_name,
+    segment: row.segment,
+    status: row.status,
+    plan: row.plan,
+    lastAccess: row.last_access_at,
+    monthRevenue,
+    risk: computeRisk(entries, goals),
+    city: row.city,
+    cnpj: row.cnpj,
+  };
+}
+
+/*
       alerts.push({
         id: `risk-${store.id}`,
         severity: "critico",
@@ -969,7 +1134,7 @@ export async function listAdminAlerts(): Promise<AdminAlert[]> {
   return alerts;
 }
 
-async function hydrateStore(row: StoreRow): Promise<Store> {
+async function unusedHydrateStore(row: StoreRow): Promise<Store> {
   const entries = await listEntries(row.id);
   const goals = await getGoals(row.id).catch(() => undefined);
   const monthRevenue = sumEntries(entries, "receita");
@@ -988,3 +1153,4 @@ async function hydrateStore(row: StoreRow): Promise<Store> {
     cnpj: row.cnpj,
   };
 }
+*/

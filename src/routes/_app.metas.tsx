@@ -29,18 +29,14 @@ import {
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/metas")({
-  head: () => ({ meta: [{ title: "Metas — Caixa Local" }] }),
+  head: () => ({ meta: [{ title: "Metas - Caixa Local" }] }),
   component: MetasPage,
 });
 
 function MetasPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
-  const [formGoals, setFormGoals] = useState<Goals>({
-    revenue: 45000,
-    margin: 22,
-    maxExpenses: 30000,
-  });
+  const [formGoals, setFormGoals] = useState<Goals>({ revenue: 0, margin: 0, maxExpenses: 0 });
   const now = startOfMonth(new Date());
 
   const { data: store } = useQuery({
@@ -69,7 +65,8 @@ function MetasPage() {
     mutationFn: () => saveGoals(store!.id, formGoals, now),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["goals"] });
-      toast.success("Metas atualizadas para o mês.");
+      queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
+      toast.success("Metas atualizadas para o mes.");
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao salvar metas."),
@@ -88,13 +85,13 @@ function MetasPage() {
   }, [entries, now]);
 
   if (!store)
-    return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada à sua conta.</div>;
+    return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Metas do mês"
-        description="Defina objetivos claros e acompanhe o progresso em tempo real."
+        title="Metas do mes"
+        description="Comece vazio: defina as metas que fazem sentido para a rotina da sua loja."
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -102,12 +99,12 @@ function MetasPage() {
           label="Faturamento"
           current={stats.rev}
           target={formGoals.revenue}
-          format={(value) => formatBRL(value)}
+          format={formatBRL}
           better="higher"
           icon={TrendingUp}
         />
         <GoalCard
-          label="Margem mínima"
+          label="Margem minima"
           current={stats.margin}
           target={formGoals.margin}
           format={(value) => `${value.toFixed(1)}%`}
@@ -118,7 +115,7 @@ function MetasPage() {
           label="Limite de despesas"
           current={stats.exp}
           target={formGoals.maxExpenses}
-          format={(value) => formatBRL(value)}
+          format={formatBRL}
           better="lower"
           icon={TrendingDown}
         />
@@ -147,7 +144,7 @@ function MetasPage() {
                 }
               />
             </Field>
-            <Field label="Margem mínima (%)">
+            <Field label="Margem minima (%)">
               <Input
                 type="number"
                 min="0"
@@ -209,7 +206,8 @@ function GoalCard({
   better: "higher" | "lower";
   icon: React.ComponentType<{ className?: string }>;
 }) {
-  const progress = target > 0 ? (current / target) * 100 : 0;
+  const configured = target > 0;
+  const progress = configured ? (current / target) * 100 : 0;
   const onTrack = better === "higher" ? current >= target * 0.85 : current <= target * 0.9;
   const exceeded = better === "higher" ? current >= target : current <= target;
 
@@ -223,7 +221,9 @@ function GoalCard({
             </div>
             <div className="mt-1.5 text-2xl font-semibold tabular-nums">{format(current)}</div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              Meta {better === "higher" ? "≥" : "≤"} {format(target)}
+              {configured
+                ? `Meta ${better === "higher" ? ">=" : "<="} ${format(target)}`
+                : "Sem meta definida"}
             </div>
           </div>
           <div className="h-8 w-8 rounded-md bg-muted grid place-items-center">
@@ -235,30 +235,34 @@ function GoalCard({
             value={Math.min(100, progress)}
             className={cn(
               "h-1.5",
-              !onTrack && "[&>div]:bg-warning",
-              exceeded && better === "higher" && "[&>div]:bg-success",
+              configured && !onTrack && "[&>div]:bg-warning",
+              configured && exceeded && better === "higher" && "[&>div]:bg-success",
             )}
           />
           <div className="mt-2 flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">{progress.toFixed(0)}% do alvo</span>
+            <span className="text-muted-foreground">
+              {configured ? `${progress.toFixed(0)}% do alvo` : "Configure uma meta"}
+            </span>
             <span
               className={cn(
                 "inline-flex items-center gap-1 font-medium",
-                onTrack ? "text-success" : "text-warning",
+                configured && onTrack ? "text-success" : "text-warning",
               )}
             >
-              {onTrack ? (
+              {configured && onTrack ? (
                 <CheckCircle2 className="h-3 w-3" />
               ) : (
                 <AlertTriangle className="h-3 w-3" />
               )}
-              {onTrack
-                ? better === "higher"
-                  ? "No ritmo certo"
-                  : "Despesa controlada"
-                : better === "higher"
-                  ? "Precisa acelerar"
-                  : "Atenção ao gasto"}
+              {!configured
+                ? "Aguardando meta"
+                : onTrack
+                  ? better === "higher"
+                    ? "No ritmo certo"
+                    : "Despesa controlada"
+                  : better === "higher"
+                    ? "Precisa acelerar"
+                    : "Atencao ao gasto"}
             </span>
           </div>
         </div>

@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import {
   defaultBillingMessageTemplate,
+  defaultDailyClosingMessageTemplate,
   getAppSetting,
   listSubscriptionPlans,
   saveAppSetting,
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/_app/admin/configuracoes")({
 function AdminConfigPage() {
   const queryClient = useQueryClient();
   const [billingMessage, setBillingMessage] = useState(defaultBillingMessageTemplate());
+  const [dailyMessage, setDailyMessage] = useState(defaultDailyClosingMessageTemplate());
   const { data: plans = [] } = useQuery({
     queryKey: ["subscription-plans"],
     queryFn: () => listSubscriptionPlans({ activeOnly: true }),
@@ -31,7 +33,12 @@ function AdminConfigPage() {
     queryKey: ["app-setting", "billing_whatsapp_message"],
     queryFn: () => getAppSetting("billing_whatsapp_message", defaultBillingMessageTemplate()),
   });
-  const settingMutation = useMutation({
+  const { data: savedDailyMessage } = useQuery({
+    queryKey: ["app-setting", "daily_closing_whatsapp_message"],
+    queryFn: () =>
+      getAppSetting("daily_closing_whatsapp_message", defaultDailyClosingMessageTemplate()),
+  });
+  const billingMutation = useMutation({
     mutationFn: () => saveAppSetting("billing_whatsapp_message", billingMessage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["app-setting", "billing_whatsapp_message"] });
@@ -40,10 +47,25 @@ function AdminConfigPage() {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao salvar texto."),
   });
+  const dailyMutation = useMutation({
+    mutationFn: () => saveAppSetting("daily_closing_whatsapp_message", dailyMessage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["app-setting", "daily_closing_whatsapp_message"],
+      });
+      toast.success("Texto do fechamento diario salvo.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar texto."),
+  });
 
   useEffect(() => {
     if (savedBillingMessage) setBillingMessage(savedBillingMessage);
   }, [savedBillingMessage]);
+
+  useEffect(() => {
+    if (savedDailyMessage) setDailyMessage(savedDailyMessage);
+  }, [savedDailyMessage]);
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -73,11 +95,42 @@ function AdminConfigPage() {
             <Button
               size="sm"
               className="gap-2"
-              onClick={() => settingMutation.mutate()}
-              disabled={settingMutation.isPending}
+              onClick={() => billingMutation.mutate()}
+              disabled={billingMutation.isPending}
             >
               <Save className="h-4 w-4" />
-              {settingMutation.isPending ? "Salvando..." : "Salvar texto"}
+              {billingMutation.isPending ? "Salvando..." : "Salvar texto"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">
+            Texto do fechamento diario no WhatsApp
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            value={dailyMessage}
+            onChange={(event) => setDailyMessage(event.target.value)}
+            rows={5}
+            placeholder={defaultDailyClosingMessageTemplate()}
+          />
+          <div className="text-xs text-muted-foreground">
+            Variaveis disponiveis: {"{{loja}}"}, {"{{responsavel}}"}, {"{{entrada}}"}, {"{{saida}}"}
+            , {"{{lucro}}"} e {"{{data}}"}.
+          </div>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              className="gap-2"
+              onClick={() => dailyMutation.mutate()}
+              disabled={dailyMutation.isPending}
+            >
+              <Save className="h-4 w-4" />
+              {dailyMutation.isPending ? "Salvando..." : "Salvar texto"}
             </Button>
           </div>
         </CardContent>

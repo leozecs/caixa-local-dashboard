@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth";
-import { getCurrentStore, type Store } from "@/lib/data";
+import { getCurrentStore, listStoreOperationalAlerts, planHasAlerts, type Store } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -42,6 +42,7 @@ const STORE_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/lancamentos", label: "Lançamentos", icon: ArrowLeftRight },
   { to: "/metas", label: "Metas", icon: Target },
+  { to: "/alertas", label: "Alertas", icon: Bell },
   { to: "/consultor-ia", label: "Consultor IA", icon: Sparkles },
   { to: "/relatorios", label: "Relatórios", icon: FileBarChart2 },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
@@ -55,6 +56,13 @@ const ADMIN_NAV = [
   { to: "/admin/alertas", label: "Alertas", icon: Bell },
   { to: "/admin/configuracoes", label: "Config", icon: Settings },
 ] as const;
+
+type NavItem = {
+  to: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: number;
+};
 
 const MONTHS = [
   "Janeiro",
@@ -84,6 +92,17 @@ function AppShell() {
     queryFn: () => getCurrentStore(session!.profile),
     enabled: Boolean(session && session.role !== "owner"),
   });
+  const { data: storeAlerts = [] } = useQuery({
+    queryKey: ["store-operational-alerts", currentStore?.id],
+    queryFn: () => listStoreOperationalAlerts(currentStore!.id),
+    enabled: Boolean(currentStore?.id && planHasAlerts(currentStore.plan)),
+  });
+  const navItems: NavItem[] = useMemo(() => {
+    if (inAdmin && isAdmin) return [...ADMIN_NAV];
+    return STORE_NAV.filter(
+      (item) => item.to !== "/alertas" || Boolean(currentStore && planHasAlerts(currentStore.plan)),
+    ).map((item) => (item.to === "/alertas" ? { ...item, badge: storeAlerts.length } : item));
+  }, [currentStore, inAdmin, isAdmin, storeAlerts.length]);
 
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/login" });
@@ -102,7 +121,7 @@ function AppShell() {
       {/* Sidebar desktop */}
       <aside className="hidden lg:flex w-60 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
         <BrandBlock />
-        <SidebarNav items={inAdmin && isAdmin ? ADMIN_NAV : STORE_NAV} pathname={pathname} />
+        <SidebarNav items={navItems} pathname={pathname} />
         <div className="mt-auto p-3 border-t border-sidebar-border">
           <div className="text-xs text-sidebar-foreground/60">Logado como</div>
           <div className="text-sm font-medium truncate">{session.name}</div>
@@ -125,7 +144,7 @@ function AppShell() {
               </button>
             </div>
             <SidebarNav
-              items={inAdmin && isAdmin ? ADMIN_NAV : STORE_NAV}
+              items={navItems}
               pathname={pathname}
               onNavigate={() => setMobileOpen(false)}
             />
@@ -192,7 +211,7 @@ function AppShell() {
 
         {/* Bottom nav mobile */}
         <nav className="lg:hidden fixed bottom-0 inset-x-0 bg-card border-t border-border flex items-center justify-around h-16 z-30">
-          {(inAdmin && isAdmin ? ADMIN_NAV.slice(0, 6) : STORE_NAV.slice(0, 5)).map((item) => {
+          {navItems.slice(0, 6).map((item) => {
             const active =
               pathname === item.to || (item.to !== "/admin" && pathname.startsWith(item.to + "/"));
             const Icon = item.icon;
@@ -201,11 +220,16 @@ function AppShell() {
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  "flex flex-col items-center justify-center text-[10px] gap-0.5 px-2 py-1 rounded-md min-w-[56px]",
+                  "relative flex flex-col items-center justify-center text-[10px] gap-0.5 px-2 py-1 rounded-md min-w-[56px]",
                   active ? "text-primary" : "text-muted-foreground",
                 )}
               >
                 <Icon className="h-4 w-4" />
+                {item.badge ? (
+                  <span className="absolute right-2 top-0 min-w-4 rounded-full bg-destructive px-1 text-[10px] leading-4 text-destructive-foreground">
+                    {item.badge}
+                  </span>
+                ) : null}
                 {item.label}
               </Link>
             );
@@ -262,11 +286,7 @@ function SidebarNav({
   pathname,
   onNavigate,
 }: {
-  items: readonly {
-    to: string;
-    label: string;
-    icon: React.ComponentType<{ className?: string }>;
-  }[];
+  items: readonly NavItem[];
   pathname: string;
   onNavigate?: () => void;
 }) {
@@ -290,6 +310,11 @@ function SidebarNav({
           >
             <Icon className="h-4 w-4" />
             <span className="truncate">{item.label}</span>
+            {item.badge ? (
+              <span className="ml-auto min-w-5 rounded-full bg-destructive px-1.5 py-0.5 text-center text-[10px] leading-none text-destructive-foreground">
+                {item.badge}
+              </span>
+            ) : null}
           </Link>
         );
       })}

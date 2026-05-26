@@ -111,7 +111,7 @@ function AdminConsultorIa() {
         }),
       });
 
-      const payload = await response.json();
+      const payload = await readJsonResponse(response);
       if (!response.ok) {
         throw new Error(payload?.message || "Nao foi possivel gerar a analise.");
       }
@@ -261,6 +261,17 @@ function AdminConsultorIa() {
       </Card>
     </div>
   );
+}
+
+async function readJsonResponse(response: Response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(
+      "Servidor retornou uma resposta invalida. Tente novamente em alguns instantes.",
+    );
+  }
 }
 
 async function getAccessToken() {

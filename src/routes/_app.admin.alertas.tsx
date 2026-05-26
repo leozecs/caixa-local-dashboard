@@ -2,11 +2,19 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { AlertCircle, AlertTriangle, Info } from "lucide-react";
+import { AlertCircle, AlertTriangle, Info, Send } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { listAdminAlerts } from "@/lib/data";
+import { Button } from "@/components/ui/button";
+import {
+  defaultDailyClosingMessageTemplate,
+  formatBRL,
+  getAppSetting,
+  listAdminAlerts,
+  listDailyStoreResults,
+  renderDailyClosingMessage,
+} from "@/lib/data";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/admin/alertas")({
@@ -16,6 +24,15 @@ export const Route = createFileRoute("/_app/admin/alertas")({
 
 function Alertas() {
   const { data: alerts = [] } = useQuery({ queryKey: ["admin-alerts"], queryFn: listAdminAlerts });
+  const { data: dailyResults = [] } = useQuery({
+    queryKey: ["daily-store-results"],
+    queryFn: () => listDailyStoreResults(),
+  });
+  const { data: dailyTemplate = defaultDailyClosingMessageTemplate() } = useQuery({
+    queryKey: ["app-setting", "daily_closing_whatsapp_message"],
+    queryFn: () =>
+      getAppSetting("daily_closing_whatsapp_message", defaultDailyClosingMessageTemplate()),
+  });
 
   return (
     <div className="space-y-5">
@@ -76,6 +93,70 @@ function Alertas() {
               </div>
             );
           })}
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardContent className="p-0">
+          <div className="px-4 py-3 border-b border-border">
+            <div className="text-sm font-semibold">Fechamento diario por loja</div>
+            <div className="text-xs text-muted-foreground">
+              Entradas, saidas e lucro de hoje para envio manual no WhatsApp.
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-muted-foreground border-b border-border bg-muted/40">
+                <tr className="[&>th]:px-4 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
+                  <th>Loja</th>
+                  <th className="text-right">Entrada</th>
+                  <th className="text-right">Saida</th>
+                  <th className="text-right">Lucro</th>
+                  <th className="text-right">WhatsApp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyResults.map((row) => {
+                  const message = renderDailyClosingMessage(dailyTemplate, {
+                    loja: row.storeName,
+                    responsavel: row.owner,
+                    entrada: formatBRL(row.revenue),
+                    saida: formatBRL(row.expenses),
+                    lucro: formatBRL(row.profit),
+                    data: format(new Date(), "dd/MM/yyyy", { locale: ptBR }),
+                  });
+                  return (
+                    <tr key={row.storeId} className="border-b border-border last:border-0">
+                      <td className="px-4 py-2.5">
+                        <div className="font-medium">{row.storeName}</div>
+                        <div className="text-xs text-muted-foreground">{row.owner}</div>
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-success tabular-nums">
+                        {formatBRL(row.revenue)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-destructive tabular-nums">
+                        {formatBRL(row.expenses)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-medium tabular-nums">
+                        {formatBRL(row.profit)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <Button size="sm" variant="outline" className="gap-2" asChild>
+                          <a
+                            href={`https://wa.me/?text=${encodeURIComponent(message)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <Send className="h-4 w-4" /> Enviar
+                          </a>
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
     </div>
