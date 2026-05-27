@@ -72,9 +72,7 @@ function AdminConfigPage() {
       }),
     onSuccess: (profile) => {
       cacheProfile(profile);
-      toast.success(
-        "Perfil admin atualizado. Entre novamente ou recarregue a pagina para refletir no topo.",
-      );
+      toast.success("Perfil admin atualizado.");
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao atualizar perfil."),

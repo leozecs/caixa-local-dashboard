@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   LayoutDashboard,
   ArrowLeftRight,
@@ -151,9 +152,10 @@ function AppShell() {
   if (loading || !session) return null;
 
   const shellName = inAdmin ? "Admin Caixa Local" : currentStore?.name || "Loja";
+  const sidebarTheme = sidebarThemeStyle(session.profile.profileColor);
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground">
+    <div className="min-h-screen flex bg-background text-foreground" style={sidebarTheme}>
       {/* Sidebar desktop */}
       <aside className="hidden lg:flex w-60 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
         <BrandBlock title={shellName} />
@@ -387,6 +389,57 @@ function StatusDot({ variant }: { variant: "success" | "warning" | "info" | "dan
 
 function profileInitial(savedInitial: string | null | undefined, name: string) {
   return (savedInitial || name.trim().slice(0, 1) || "C").slice(0, 1).toUpperCase();
+}
+
+function sidebarThemeStyle(color: string | null | undefined): CSSProperties {
+  const sidebar = normalizeHexColor(color) || "#111827";
+  const foreground = readableTextColor(sidebar);
+  const accent = mixHex(sidebar, foreground === "#ffffff" ? "#ffffff" : "#000000", 0.12);
+  const border = mixHex(sidebar, foreground === "#ffffff" ? "#ffffff" : "#000000", 0.18);
+
+  return {
+    "--sidebar": sidebar,
+    "--sidebar-foreground": foreground,
+    "--sidebar-primary": accent,
+    "--sidebar-primary-foreground": foreground,
+    "--sidebar-accent": accent,
+    "--sidebar-accent-foreground": foreground,
+    "--sidebar-border": border,
+    "--sidebar-ring": accent,
+  } as CSSProperties;
+}
+
+function normalizeHexColor(color: string | null | undefined) {
+  const value = color?.trim();
+  if (!value) return null;
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) return value;
+  return null;
+}
+
+function readableTextColor(background: string) {
+  const { red, green, blue } = hexToRgb(background);
+  const brightness = (red * 299 + green * 587 + blue * 114) / 1000;
+  return brightness > 180 ? "#111827" : "#ffffff";
+}
+
+function mixHex(base: string, overlay: string, amount: number) {
+  const a = hexToRgb(base);
+  const b = hexToRgb(overlay);
+  const mix = (left: number, right: number) => Math.round(left + (right - left) * amount);
+  return rgbToHex(mix(a.red, b.red), mix(a.green, b.green), mix(a.blue, b.blue));
+}
+
+function hexToRgb(hex: string) {
+  const value = hex.replace("#", "");
+  return {
+    red: parseInt(value.slice(0, 2), 16),
+    green: parseInt(value.slice(2, 4), 16),
+    blue: parseInt(value.slice(4, 6), 16),
+  };
+}
+
+function rgbToHex(red: number, green: number, blue: number) {
+  return `#${[red, green, blue].map((part) => part.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function readDismissedAlertIds() {

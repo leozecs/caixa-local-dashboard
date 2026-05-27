@@ -100,9 +100,7 @@ function ConfigPage() {
       }),
     onSuccess: (profile) => {
       cacheProfile(profile);
-      toast.success(
-        "Perfil atualizado. Entre novamente ou recarregue a pagina para refletir no topo.",
-      );
+      toast.success("Perfil atualizado.");
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao atualizar perfil."),

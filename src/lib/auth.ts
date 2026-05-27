@@ -22,11 +22,13 @@ export interface Session {
 }
 
 const PROFILE_CACHE_KEY = "caixa-local-profile";
+const PROFILE_CACHE_EVENT = "caixa-local-profile-updated";
 
 export function cacheProfile(profile: Profile | null) {
   if (typeof window === "undefined") return;
   if (profile) window.localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
   else window.localStorage.removeItem(PROFILE_CACHE_KEY);
+  window.dispatchEvent(new CustomEvent<Profile | null>(PROFILE_CACHE_EVENT, { detail: profile }));
 }
 
 function getCachedProfile(): Profile | null {
@@ -143,9 +145,31 @@ export function useSession() {
         .finally(() => setLoading(false));
     });
 
+    const handleProfileCacheUpdate = (event: Event) => {
+      const profile = (event as CustomEvent<Profile | null>).detail;
+      if (!profile) {
+        setSession(null);
+        return;
+      }
+      setSession((current) =>
+        current
+          ? {
+              ...current,
+              email: profile.email,
+              name: profile.name,
+              role: profile.role,
+              profile,
+            }
+          : getSession(),
+      );
+    };
+
+    window.addEventListener(PROFILE_CACHE_EVENT, handleProfileCacheUpdate);
+
     return () => {
       cancelled = true;
       subscription.unsubscribe();
+      window.removeEventListener(PROFILE_CACHE_EVENT, handleProfileCacheUpdate);
     };
   }, []);
 
