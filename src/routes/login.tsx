@@ -4,7 +4,7 @@ import { Wallet, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { signIn } from "@/lib/auth";
+import { requestPasswordReset, signIn } from "@/lib/auth";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Entrar | Caixa Local" }] }),
@@ -16,11 +16,14 @@ function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setMessage(null);
     setLoading(true);
     try {
       const session = await signIn(email, password);
@@ -29,6 +32,31 @@ function LoginPage() {
       setError(err instanceof Error ? err.message : "Erro ao entrar.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handlePasswordReset() {
+    setError(null);
+    setMessage(null);
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError("Digite seu e-mail para receber o link de recuperação de senha.");
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await requestPasswordReset(trimmedEmail);
+      setMessage(
+        "Se esse e-mail estiver cadastrado, enviaremos um link seguro para você criar uma nova senha.",
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Não foi possível enviar o e-mail de recuperação.",
+      );
+    } finally {
+      setResetLoading(false);
     }
   }
 
@@ -103,6 +131,11 @@ function LoginPage() {
                 {error}
               </div>
             )}
+            {message && (
+              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-700">
+                {message}
+              </div>
+            )}
 
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? (
@@ -115,9 +148,14 @@ function LoginPage() {
             </Button>
 
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <a href="#" className="hover:text-foreground">
-                Esqueci minha senha
-              </a>
+              <button
+                type="button"
+                className="hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handlePasswordReset}
+                disabled={resetLoading}
+              >
+                {resetLoading ? "Enviando link..." : "Esqueci minha senha"}
+              </button>
               <span>Caixa Local · acesso seguro</span>
             </div>
           </form>

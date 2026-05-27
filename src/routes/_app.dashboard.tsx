@@ -25,7 +25,7 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
-import { format, isSameDay, isSameMonth, parseISO, startOfMonth, subMonths } from "date-fns";
+import { format, isSameDay, isSameMonth, parseISO, startOfMonth, subDays, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -115,6 +115,7 @@ function DashboardPage() {
   const prevRevenue = sumBy(previousEntries, "receita") || 1;
   const prevExpenses = sumBy(previousEntries, "despesa") || 1;
   const goalProgress = goals.revenue ? (revenue / goals.revenue) * 100 : 0;
+  const isAttendant = store.memberRole === "atendente";
 
   const dailyData = currentEntries.reduce<Array<{ day: string; receita: number; despesa: number }>>(
     (items, entry) => {
@@ -149,6 +150,90 @@ function DashboardPage() {
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const expectedRevenue = goals.revenue > 0 ? goals.revenue * (today.getDate() / daysInMonth) : 0;
   const alerts = buildAlerts({ margin, goalProgress, expenses, goals, today });
+
+  if (isAttendant) {
+    const weekDays = Array.from({ length: 7 }).map((_, index) => subDays(today, 6 - index));
+    const weekRows = weekDays.map((day) => {
+      const dayEntries = entries.filter((entry) => isSameDay(parseISO(entry.date), day));
+      const dayRevenue = sumBy(dayEntries, "receita");
+      const dayExpenses = sumBy(dayEntries, "despesa");
+      return {
+        label: format(day, "EEE dd/MM", { locale: ptBR }),
+        revenue: dayRevenue,
+        expenses: dayExpenses,
+        balance: dayRevenue - dayExpenses,
+      };
+    });
+    const weekRevenue = weekRows.reduce((sum, row) => sum + row.revenue, 0);
+    const weekExpenses = weekRows.reduce((sum, row) => sum + row.expenses, 0);
+
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title={`Olá, ${session?.name.split(" ")[0] || "atendente"}.`}
+          description={`Resumo operacional da semana — ${store.name}`}
+          actions={
+            <Button size="sm" className="gap-2" asChild>
+              <Link to="/lancamentos">
+                <Plus className="h-4 w-4" /> Novo lançamento
+              </Link>
+            </Button>
+          }
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <MetricCard label="Entrou na semana" value={formatBRL(weekRevenue)} accent="success" />
+          <MetricCard label="Saiu na semana" value={formatBRL(weekExpenses)} accent="expense" />
+          <MetricCard
+            label="Saldo da semana"
+            value={formatBRL(weekRevenue - weekExpenses)}
+            accent={weekRevenue - weekExpenses >= 0 ? "success" : "expense"}
+          />
+        </div>
+
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Semana</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border text-xs text-muted-foreground">
+                  <tr className="[&>th]:px-4 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
+                    <th>Dia</th>
+                    <th className="text-right">Entrou</th>
+                    <th className="text-right">Saiu</th>
+                    <th className="text-right">Saldo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weekRows.map((row) => (
+                    <tr key={row.label} className="border-b border-border last:border-0">
+                      <td className="px-4 py-3 capitalize">{row.label}</td>
+                      <td className="px-4 py-3 text-right font-medium text-success">
+                        {formatBRLPrecise(row.revenue)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium text-destructive">
+                        {formatBRLPrecise(row.expenses)}
+                      </td>
+                      <td
+                        className={cn(
+                          "px-4 py-3 text-right font-semibold",
+                          row.balance >= 0 ? "text-success" : "text-destructive",
+                        )}
+                      >
+                        {formatBRLPrecise(row.balance)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

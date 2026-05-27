@@ -9,6 +9,7 @@ export type EntryType = "receita" | "despesa";
 export type PaymentMethod = "Pix" | "Cartão" | "Dinheiro" | "Boleto" | "Transferência";
 export type Plan = string;
 export type SubscriptionStatus = "em_dia" | "em_atraso" | "trial" | "cancelada";
+export type StoreMemberRole = "owner" | "atendente";
 
 export const RECEITA_CATEGORIAS = [
   "Vendas",
@@ -42,6 +43,7 @@ export interface Store {
   city: string;
   cnpj?: string | null;
   dailyClosingWhatsappEnabled?: boolean;
+  memberRole?: StoreMemberRole;
 }
 
 export interface Entry {
@@ -158,6 +160,15 @@ export interface StoreDailyResult {
   profit: number;
 }
 
+export interface StoreMember {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: StoreMemberRole;
+  createdAt: string;
+}
+
 export interface PlanCapabilities {
   key: "economico" | "essencial" | "gestao_local" | "custom";
   dashboard: boolean;
@@ -233,6 +244,13 @@ type SubscriptionPlanDbRow = {
   description: string | null;
   active: boolean;
   sort_order: number;
+};
+
+type StoreMemberDbRow = {
+  id: string;
+  role: StoreMemberRole;
+  created_at: string;
+  profiles?: { id: string; email: string; name: string } | { id: string; email: string; name: string }[] | null;
 };
 
 type AiInsightDbRow = {
@@ -444,6 +462,23 @@ function toSubscriptionPlan(row: SubscriptionPlanDbRow): SubscriptionPlan {
     description: row.description,
     active: row.active,
     sortOrder: row.sort_order,
+  };
+}
+
+function profileFromMember(row: StoreMemberDbRow) {
+  const joined = row.profiles;
+  return Array.isArray(joined) ? joined[0] : joined;
+}
+
+function toStoreMember(row: StoreMemberDbRow): StoreMember {
+  const profile = profileFromMember(row);
+  return {
+    id: row.id,
+    userId: profile?.id || "",
+    name: profile?.name || "Usuario",
+    email: profile?.email || "",
+    role: row.role,
+    createdAt: row.created_at,
   };
 }
 
@@ -701,7 +736,7 @@ export async function getCurrentStore(profile: Profile) {
 
   const { data, error } = await client
     .from("store_members")
-    .select("stores(*)")
+    .select("role, stores(*)")
     .eq("user_id", profile.id)
     .limit(1)
     .single();
@@ -710,7 +745,7 @@ export async function getCurrentStore(profile: Profile) {
   const store = Array.isArray(data.stores) ? data.stores[0] : data.stores;
   if (!store) return null;
 
-  return hydrateStore(store as StoreRow);
+  return { ...(await hydrateStore(store as StoreRow)), memberRole: data.role as StoreMemberRole };
 }
 
 export async function listStores() {
@@ -780,6 +815,76 @@ export async function updateStore(id: string, input: Partial<Store>) {
 
   if (error) throw error;
   return hydrateStore(data as StoreRow);
+}
+
+async function getSessionToken() {
+  const client = requireSupabase();
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  const token = sessionData.session?.access_token;
+  if (!token) throw new Error("Sessao expirada. Entre novamente.");
+  return token;
+}
+
+export async function listStoreMembers(storeId: string): Promise<{
+  members: StoreMember[];
+  maxUsers: number;
+}> {
+  const token = await getSessionToken();
+  const response = await fetch(`/api/store-members?storeId=${encodeURIComponent(storeId)}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload?.message || "Erro ao carregar equipe.");
+  return {
+    members: ((payload.members || []) as StoreMemberDbRow[]).map(toStoreMember),
+    maxUsers: Number(payload.maxUsers || 1),
+  };
+}
+
+export async function createStoreMember(input: {
+  storeId: string;
+  name: string;
+  email: string;
+  password: string;
+  role: StoreMemberRole;
+}) {
+  const token = await getSessionToken();
+  const response = await fetch(`/api/store-members?storeId=${encodeURIComponent(input.storeId)}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      name: input.name,
+      email: input.email,
+      password: input.password,
+      role: input.role,
+    }),
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload?.message || "Erro ao cadastrar usuario.");
+  return ((payload.members || []) as StoreMemberDbRow[]).map(toStoreMember);
+}
+
+export async function updateStoreMemberRole(input: {
+  storeId: string;
+  memberId: string;
+  role: StoreMemberRole;
+}) {
+  const token = await getSessionToken();
+  const response = await fetch(`/api/store-members?storeId=${encodeURIComponent(input.storeId)}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ memberId: input.memberId, role: input.role }),
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload?.message || "Erro ao atualizar usuario.");
+  return ((payload.members || []) as StoreMemberDbRow[]).map(toStoreMember);
 }
 
 export async function deleteStore(id: string) {

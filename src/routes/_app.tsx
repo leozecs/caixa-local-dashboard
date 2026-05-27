@@ -102,6 +102,7 @@ function AppShell() {
     queryFn: () => getCurrentStore(session!.profile),
     enabled: Boolean(session && session.role !== "owner"),
   });
+  const isStoreAttendant = currentStore?.memberRole === "atendente";
   const { data: storeAlerts = [] } = useQuery({
     queryKey: ["store-operational-alerts", currentStore?.id],
     queryFn: () => listStoreOperationalAlerts(currentStore!.id),
@@ -116,10 +117,11 @@ function AppShell() {
     const capabilities = currentStore ? getPlanCapabilities(currentStore.plan) : null;
     return STORE_NAV.filter(
       (item) =>
+        (!isStoreAttendant || item.to === "/dashboard" || item.to === "/lancamentos") &&
         (item.to !== "/alertas" || Boolean(capabilities?.alerts)) &&
         (item.to !== "/consultor-ia" || Boolean(capabilities?.aiConsultant)),
     ).map((item) => (item.to === "/alertas" ? { ...item, badge: activeStoreAlerts.length } : item));
-  }, [activeStoreAlerts.length, currentStore, inAdmin, isAdmin]);
+  }, [activeStoreAlerts.length, currentStore, inAdmin, isAdmin, isStoreAttendant]);
 
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/login" });
@@ -129,7 +131,15 @@ function AppShell() {
     if (loading || !session) return;
     if (session.role === "owner" && !inAdmin) navigate({ to: "/admin" });
     if (session.role === "lojista" && inAdmin) navigate({ to: "/dashboard" });
-  }, [loading, session, inAdmin, navigate]);
+    if (
+      session.role === "lojista" &&
+      currentStore?.memberRole === "atendente" &&
+      pathname !== "/dashboard" &&
+      pathname !== "/lancamentos"
+    ) {
+      navigate({ to: "/dashboard" });
+    }
+  }, [loading, session, inAdmin, currentStore?.memberRole, pathname, navigate]);
 
   useEffect(() => {
     if (pathname !== "/alertas" || !storeAlerts.length) return;

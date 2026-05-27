@@ -10,6 +10,7 @@ type ServerEntry = {
 type EnvRecord = Record<string, string | undefined>;
 type SupabaseUser = { id: string; email?: string };
 type StoreStatus = "ativa" | "pendente" | "trial" | "cancelada";
+type StoreMemberRole = "owner" | "atendente";
 type AiInsight = {
   summary: string;
   opportunity: string;
@@ -139,6 +140,25 @@ async function canAccessStore(env: unknown, userId: string, storeId: string) {
   return Boolean(members[0]?.id);
 }
 
+async function getStoreMembershipRole(
+  env: unknown,
+  userId: string,
+  storeId: string,
+): Promise<StoreMemberRole | null> {
+  const memberResponse = await supabaseAdminFetch(
+    env,
+    `/rest/v1/store_members?store_id=eq.${encodeURIComponent(storeId)}&user_id=eq.${encodeURIComponent(userId)}&select=role&limit=1`,
+  );
+  if (!memberResponse.ok) return null;
+  const members = (await memberResponse.json()) as Array<{ role?: StoreMemberRole }>;
+  return members[0]?.role || null;
+}
+
+async function canManageStore(env: unknown, userId: string, storeId: string) {
+  if (await isOwner(env, userId)) return true;
+  return (await getStoreMembershipRole(env, userId, storeId)) === "owner";
+}
+
 function normalizePlanName(plan: string) {
   return plan
     .normalize("NFD")
@@ -149,6 +169,13 @@ function normalizePlanName(plan: string) {
 
 function planCanUseAiConsultant(plan: string) {
   return normalizePlanName(plan).includes("gestao local");
+}
+
+function planMaxUsers(plan: string) {
+  const normalized = normalizePlanName(plan);
+  if (normalized.includes("gestao local")) return 5;
+  if (normalized.includes("essencial")) return 3;
+  return 1;
 }
 
 async function getStorePlan(env: unknown, storeId: string) {
@@ -169,6 +196,15 @@ async function isOwner(env: unknown, userId: string) {
   if (!response.ok) return false;
   const profiles = (await response.json()) as Array<{ role?: string }>;
   return profiles[0]?.role === "owner";
+}
+
+async function requireStoreManager(request: Request, env: unknown, storeId: string) {
+  const user = await getSupabaseUser(request, env);
+  if (!user) throw new Response("Sessao invalida.", { status: 401 });
+  if (!(await canManageStore(env, user.id, storeId))) {
+    throw new Response("Apenas o owner da loja pode gerenciar equipe.", { status: 403 });
+  }
+  return user;
 }
 
 async function readErrorMessage(response: Response, fallback: string) {
@@ -320,7 +356,7 @@ async function handleAdminCreateStore(request: Request, env: unknown) {
 
   const memberResponse = await supabaseAdminFetch(env, "/rest/v1/store_members", {
     method: "POST",
-    body: JSON.stringify({ store_id: store.id, user_id: authUser.id }),
+    body: JSON.stringify({ store_id: store.id, user_id: authUser.id, role: "owner" }),
   });
 
   if (!memberResponse.ok) {
@@ -361,6 +397,189 @@ async function handleAdminCreateStore(request: Request, env: unknown) {
   }
 
   return jsonResponse({ store });
+}
+
+async function getStoreForTeam(env: unknown, storeId: string) {
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/stores?id=eq.${encodeURIComponent(storeId)}&select=id,plan&limit=1`,
+  );
+  if (!response.ok) throw new Response("Loja nao encontrada.", { status: 404 });
+  const stores = (await response.json()) as Array<{ id: string; plan: string }>;
+  if (!stores[0]) throw new Response("Loja nao encontrada.", { status: 404 });
+  return stores[0];
+}
+
+async function listStoreMembers(env: unknown, storeId: string) {
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/store_members?store_id=eq.${encodeURIComponent(storeId)}&select=id,role,created_at,profiles(id,email,name)&order=created_at.asc`,
+  );
+  if (!response.ok) throw new Response("Nao foi possivel carregar equipe.", { status: 500 });
+  return (await response.json()) as Array<{
+    id: string;
+    role: StoreMemberRole;
+    created_at: string;
+    profiles?: { id: string; email: string; name: string } | null;
+  }>;
+}
+
+async function handleStoreMembers(request: Request, env: unknown) {
+  const url = new URL(request.url);
+  const storeId = url.searchParams.get("storeId") || "";
+  if (!storeId) return jsonResponse({ message: "Loja obrigatoria." }, { status: 400 });
+
+  try {
+    await requireStoreManager(request, env, storeId);
+  } catch (error) {
+    if (error instanceof Response) {
+      return jsonResponse({ message: await error.text() }, { status: error.status });
+    }
+    throw error;
+  }
+
+  if (request.method === "GET") {
+    const store = await getStoreForTeam(env, storeId);
+    return jsonResponse({
+      members: await listStoreMembers(env, storeId),
+      maxUsers: planMaxUsers(store.plan),
+    });
+  }
+
+  if (request.method === "POST") {
+    const body = (await request.json()) as {
+      name?: string;
+      email?: string;
+      password?: string;
+      role?: StoreMemberRole;
+    };
+    const name = body.name?.trim();
+    const email = body.email?.trim().toLowerCase();
+    const password = body.password || "";
+    const role: StoreMemberRole = body.role === "owner" ? "owner" : "atendente";
+
+    if (!name || !email || !password) {
+      return jsonResponse({ message: "Preencha nome, email e senha." }, { status: 400 });
+    }
+    if (password.length < 8) {
+      return jsonResponse(
+        { message: "A senha precisa ter pelo menos 8 caracteres." },
+        { status: 400 },
+      );
+    }
+
+    const store = await getStoreForTeam(env, storeId);
+    const members = await listStoreMembers(env, storeId);
+    if (members.length >= planMaxUsers(store.plan)) {
+      return jsonResponse(
+        { message: `O plano atual permite ate ${planMaxUsers(store.plan)} usuario(s).` },
+        { status: 400 },
+      );
+    }
+
+    const userResponse = await supabaseAdminFetch(env, "/auth/v1/admin/users", {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { name },
+      }),
+    });
+
+    if (!userResponse.ok) {
+      return jsonResponse(
+        { message: await readErrorMessage(userResponse, "Nao foi possivel criar usuario.") },
+        { status: userResponse.status },
+      );
+    }
+
+    const authUser = (await userResponse.json()) as { id: string };
+    const profileResponse = await supabaseAdminFetch(env, "/rest/v1/profiles?on_conflict=id", {
+      method: "POST",
+      prefer: "resolution=merge-duplicates",
+      body: JSON.stringify({
+        id: authUser.id,
+        email,
+        name,
+        role: "lojista",
+        updated_at: new Date().toISOString(),
+      }),
+    });
+
+    if (!profileResponse.ok) {
+      return jsonResponse(
+        {
+          message: await readErrorMessage(
+            profileResponse,
+            "Usuario criado, mas perfil nao foi salvo.",
+          ),
+        },
+        { status: profileResponse.status },
+      );
+    }
+
+    const memberResponse = await supabaseAdminFetch(env, "/rest/v1/store_members", {
+      method: "POST",
+      body: JSON.stringify({ store_id: storeId, user_id: authUser.id, role }),
+    });
+
+    if (!memberResponse.ok) {
+      return jsonResponse(
+        {
+          message: await readErrorMessage(
+            memberResponse,
+            "Usuario criado, mas nao foi vinculado a loja.",
+          ),
+        },
+        { status: memberResponse.status },
+      );
+    }
+
+    return jsonResponse({ members: await listStoreMembers(env, storeId) }, { status: 201 });
+  }
+
+  if (request.method === "PATCH") {
+    const body = (await request.json()) as { memberId?: string; role?: StoreMemberRole };
+    const memberId = body.memberId || "";
+    const role: StoreMemberRole = body.role === "owner" ? "owner" : "atendente";
+    if (!memberId) return jsonResponse({ message: "Membro obrigatorio." }, { status: 400 });
+
+    const members = await listStoreMembers(env, storeId);
+    const current = members.find((member) => member.id === memberId);
+    if (!current) return jsonResponse({ message: "Membro nao encontrado." }, { status: 404 });
+    if (
+      current.role === "owner" &&
+      role !== "owner" &&
+      members.filter((member) => member.role === "owner").length <= 1
+    ) {
+      return jsonResponse(
+        { message: "A loja precisa manter pelo menos um owner." },
+        { status: 400 },
+      );
+    }
+
+    const response = await supabaseAdminFetch(
+      env,
+      `/rest/v1/store_members?id=eq.${encodeURIComponent(memberId)}&store_id=eq.${encodeURIComponent(storeId)}`,
+      {
+        method: "PATCH",
+        prefer: "return=minimal",
+        body: JSON.stringify({ role }),
+      },
+    );
+
+    if (!response.ok) {
+      return jsonResponse(
+        { message: await readErrorMessage(response, "Nao foi possivel atualizar membro.") },
+        { status: response.status },
+      );
+    }
+
+    return jsonResponse({ members: await listStoreMembers(env, storeId) });
+  }
+
+  return jsonResponse({ message: "Metodo nao permitido." }, { status: 405 });
 }
 
 function parseInsightText(text: string): AiInsight {
@@ -763,6 +982,9 @@ export default {
       }
       if (url.pathname === "/api/admin/stores") {
         return await handleAdminCreateStore(request, env);
+      }
+      if (url.pathname === "/api/store-members") {
+        return await handleStoreMembers(request, env);
       }
 
       const handler = await getServerEntry();

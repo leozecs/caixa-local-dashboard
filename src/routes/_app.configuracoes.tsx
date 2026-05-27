@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Save } from "lucide-react";
+import { Save, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,14 +9,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PlansCard } from "@/components/admin/plans-card";
 import { cacheProfile, useSession } from "@/lib/auth";
 import {
+  createStoreMember,
   getCurrentStore,
   getPlanCapabilities,
+  listStoreMembers,
   listSubscriptionPlans,
+  updateStoreMemberRole,
   updateProfileAppearance,
   updateStore,
+  type StoreMemberRole,
 } from "@/lib/data";
 
 export const Route = createFileRoute("/_app/configuracoes")({
@@ -33,10 +44,42 @@ function ConfigPage() {
     enabled: Boolean(session),
   });
   const isOwner = session?.role === "owner";
+  const canManageTeam = store?.memberRole === "owner" || isOwner;
   const { data: plans = [] } = useQuery({
     queryKey: ["subscription-plans"],
     queryFn: () => listSubscriptionPlans(),
     enabled: Boolean(isOwner),
+  });
+  const { data: team } = useQuery({
+    queryKey: ["store-members", store?.id],
+    queryFn: () => listStoreMembers(store!.id),
+    enabled: Boolean(store?.id && canManageTeam),
+  });
+  const createMemberMutation = useMutation({
+    mutationFn: (payload: FormData) =>
+      createStoreMember({
+        storeId: store!.id,
+        name: String(payload.get("name") || ""),
+        email: String(payload.get("email") || ""),
+        password: String(payload.get("password") || ""),
+        role: String(payload.get("role") || "atendente") as StoreMemberRole,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["store-members", store?.id] });
+      toast.success("Usuario cadastrado para esta loja.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao cadastrar usuario."),
+  });
+  const updateMemberMutation = useMutation({
+    mutationFn: (input: { memberId: string; role: StoreMemberRole }) =>
+      updateStoreMemberRole({ storeId: store!.id, memberId: input.memberId, role: input.role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["store-members", store?.id] });
+      toast.success("Permissao atualizada.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar permissao."),
   });
   const profileMutation = useMutation({
     mutationFn: (payload: FormData) =>
@@ -133,7 +176,127 @@ function ConfigPage() {
         </CardContent>
       </Card>
 
+      {canManageTeam && (
+        <Card className="shadow-none">
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">Equipe da loja</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+              <div>
+                <div className="text-sm font-medium">
+                  {team?.members.length || 0} de {team?.maxUsers || capabilities.maxUsers} usuario(s)
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  O owner gerencia a loja. O atendente acessa apenas dashboard semanal e
+                  lancamentos.
+                </div>
+              </div>
+            </div>
+
+            <form
+              className="grid grid-cols-1 md:grid-cols-[1fr_1fr_150px_140px_auto] gap-3 items-end"
+              onSubmit={(event) => {
+                event.preventDefault();
+                createMemberMutation.mutate(new FormData(event.currentTarget));
+              }}
+            >
+              <Field label="Nome">
+                <Input name="name" placeholder="Nome do usuario" required />
+              </Field>
+              <Field label="E-mail">
+                <Input name="email" type="email" placeholder="usuario@email.com" required />
+              </Field>
+              <Field label="Senha inicial">
+                <Input name="password" type="password" autoComplete="new-password" required />
+              </Field>
+              <Field label="Role">
+                <Select name="role" defaultValue="atendente">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="atendente">Atendente</SelectItem>
+                    <SelectItem value="owner">Owner</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Button
+                type="submit"
+                size="sm"
+                className="gap-2"
+                disabled={
+                  createMemberMutation.isPending ||
+                  Boolean(team && team.members.length >= team.maxUsers)
+                }
+              >
+                <UserPlus className="h-4 w-4" />
+                {createMemberMutation.isPending ? "Criando..." : "Cadastrar"}
+              </Button>
+            </form>
+
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+                  <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
+                    <th>Usuario</th>
+                    <th>E-mail</th>
+                    <th className="w-[170px]">Role</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(team?.members || []).map((member) => (
+                    <tr key={member.id} className="border-b border-border last:border-0">
+                      <td className="px-3 py-2.5 font-medium">{member.name}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{member.email}</td>
+                      <td className="px-3 py-2.5">
+                        <Select
+                          value={member.role}
+                          onValueChange={(role) =>
+                            updateMemberMutation.mutate({
+                              memberId: member.id,
+                              role: role as StoreMemberRole,
+                            })
+                          }
+                          disabled={updateMemberMutation.isPending}
+                        >
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="owner">Owner</SelectItem>
+                            <SelectItem value="atendente">Atendente</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </td>
+                    </tr>
+                  ))}
+                  {!team?.members.length && (
+                    <tr>
+                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={3}>
+                        Nenhum usuario carregado.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {isOwner && <PlansCard plans={plans} />}
+
+      {!canManageTeam && (
+        <Card className="shadow-none">
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">Equipe da loja</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Apenas o owner da loja pode cadastrar usuarios e alterar permissoes.
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="shadow-none">
         <CardHeader>

@@ -143,6 +143,7 @@ function LancamentosPage() {
 
   if (!store)
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
+  const canManageEntries = store.memberRole !== "atendente";
 
   function openCreate(type: EntryType) {
     setEditing(null);
@@ -211,6 +212,7 @@ function LancamentosPage() {
           entries={receitas}
           isLoading={isLoading}
           onAdd={() => openCreate("receita")}
+          canManage={canManageEntries}
           onEdit={(entry) => {
             setEditing(entry);
             setCreatingType(entry.type);
@@ -225,6 +227,7 @@ function LancamentosPage() {
           entries={despesas}
           isLoading={isLoading}
           onAdd={() => openCreate("despesa")}
+          canManage={canManageEntries}
           onEdit={(entry) => {
             setEditing(entry);
             setCreatingType(entry.type);
@@ -282,6 +285,7 @@ function EntriesTable({
   entries,
   isLoading,
   onAdd,
+  canManage,
   onEdit,
   onDelete,
   onAttachments,
@@ -291,6 +295,7 @@ function EntriesTable({
   entries: Entry[];
   isLoading: boolean;
   onAdd: () => void;
+  canManage: boolean;
   onEdit: (entry: Entry) => void;
   onDelete: (entry: Entry) => void;
   onAttachments: (entry: Entry) => void;
@@ -322,7 +327,7 @@ function EntriesTable({
                   <th>Categoria</th>
                   <th>Descricao</th>
                   <th className="text-right">Valor</th>
-                  <th className="text-right w-[88px]">Acoes</th>
+                  {canManage && <th className="text-right w-[88px]">Acoes</th>}
                 </tr>
               </thead>
               <tbody>
@@ -346,35 +351,37 @@ function EntriesTable({
                     >
                       {entry.type === "receita" ? "+" : "-"} {formatBRLPrecise(entry.amount)}
                     </td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => onAttachments(entry)}
-                          aria-label="Comprovantes"
-                        >
-                          <Paperclip className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => onEdit(entry)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => onDelete(entry)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </td>
+                    {canManage && (
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => onAttachments(entry)}
+                            aria-label="Comprovantes"
+                          >
+                            <Paperclip className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => onEdit(entry)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={() => onDelete(entry)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

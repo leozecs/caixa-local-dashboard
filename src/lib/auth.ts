@@ -162,6 +162,21 @@ export async function signIn(email: string, password: string): Promise<Session> 
   return toSession(data.session, profile);
 }
 
+export async function requestPasswordReset(email: string) {
+  const client = requireSupabase();
+  const redirectTo =
+    typeof window === "undefined" ? undefined : `${window.location.origin}/reset-password`;
+
+  const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) throw error;
+}
+
+export async function updatePassword(password: string) {
+  const client = requireSupabase();
+  const { error } = await client.auth.updateUser({ password });
+  if (error) throw error;
+}
+
 export async function signOut() {
   if (!supabase) return;
   cacheProfile(null);
