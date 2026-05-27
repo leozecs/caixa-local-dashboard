@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -29,10 +30,24 @@ import { ptBR } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { useSession } from "@/lib/auth";
-import { formatBRL, formatBRLPrecise, getCurrentStore, getGoals, listEntries } from "@/lib/data";
+import {
+  formatBRL,
+  formatBRLPrecise,
+  getCurrentStore,
+  getGoals,
+  getPlanCapabilities,
+  listEntries,
+} from "@/lib/data";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/dashboard")({
@@ -42,9 +57,18 @@ export const Route = createFileRoute("/_app/dashboard")({
 
 function DashboardPage() {
   const { session } = useSession();
-  const today = new Date();
-  const monthStart = startOfMonth(today);
-  const previousMonth = startOfMonth(subMonths(today, 1));
+  const today = useMemo(() => new Date(), []);
+  const months = useMemo(
+    () =>
+      Array.from({ length: 12 }).map((_, index) => {
+        const date = startOfMonth(subMonths(today, index));
+        return { value: date.toISOString(), label: format(date, "MMMM/yyyy", { locale: ptBR }) };
+      }),
+    [today],
+  );
+  const [selectedMonth, setSelectedMonth] = useState(months[0].value);
+  const monthStart = parseISO(selectedMonth);
+  const previousMonth = startOfMonth(subMonths(monthStart, 1));
 
   const { data: store, isLoading: loadingStore } = useQuery({
     queryKey: ["current-store", session?.profile.id],
@@ -52,7 +76,7 @@ function DashboardPage() {
     enabled: Boolean(session),
   });
 
-  const { data: goals = { revenue: 45000, margin: 22, maxExpenses: 30000 } } = useQuery({
+  const { data: goals = { revenue: 0, margin: 0, maxExpenses: 0 } } = useQuery({
     queryKey: ["goals", store?.id, monthStart.toISOString()],
     queryFn: () => getGoals(store!.id, monthStart),
     enabled: Boolean(store?.id),
@@ -64,7 +88,7 @@ function DashboardPage() {
       listEntries(
         store!.id,
         previousMonth.toISOString().slice(0, 10),
-        new Date(today.getFullYear(), today.getMonth() + 1, 1).toISOString().slice(0, 10),
+        new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1).toISOString().slice(0, 10),
       ),
     enabled: Boolean(store?.id),
   });
@@ -85,6 +109,7 @@ function DashboardPage() {
   const expenses = sumBy(currentEntries, "despesa");
   const profit = revenue - expenses;
   const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  const capabilities = getPlanCapabilities(store.plan);
   const sales = currentEntries.filter((entry) => entry.type === "receita");
   const ticket = sales.length ? revenue / sales.length : 0;
   const prevRevenue = sumBy(previousEntries, "receita") || 1;
@@ -119,6 +144,10 @@ function DashboardPage() {
   const todayEntries = currentEntries.filter((entry) => isSameDay(parseISO(entry.date), today));
   const todayRevenue = sumBy(todayEntries, "receita");
   const todayExpenses = sumBy(todayEntries, "despesa");
+  const todayProfit = todayRevenue - todayExpenses;
+  const topExpense = expensesByCat[0];
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const expectedRevenue = goals.revenue > 0 ? goals.revenue * (today.getDate() / daysInMonth) : 0;
   const alerts = buildAlerts({ margin, goalProgress, expenses, goals, today });
 
   return (
@@ -127,11 +156,25 @@ function DashboardPage() {
         title={`Olá, ${store.owner.split(" ")[0]}.`}
         description={`Visão geral de ${format(monthStart, "MMMM/yyyy", { locale: ptBR })} — ${store.name}`}
         actions={
-          <Button size="sm" className="gap-2" asChild>
-            <Link to="/lancamentos">
-              <Plus className="h-4 w-4" /> Novo lançamento
-            </Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+              <SelectTrigger className="h-8 w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {months.map((month) => (
+                  <SelectItem key={month.value} value={month.value}>
+                    {month.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" className="gap-2" asChild>
+              <Link to="/lancamentos">
+                <Plus className="h-4 w-4" /> Novo lançamento
+              </Link>
+            </Button>
+          </div>
         }
       />
 
@@ -141,7 +184,11 @@ function DashboardPage() {
           value={formatBRL(revenue)}
           icon={DollarSign}
           accent="success"
-          delta={((revenue - prevRevenue) / prevRevenue) * 100}
+          delta={
+            capabilities.monthlyComparison
+              ? ((revenue - prevRevenue) / prevRevenue) * 100
+              : undefined
+          }
           hint="vs mês anterior"
         />
         <MetricCard
@@ -149,7 +196,11 @@ function DashboardPage() {
           value={formatBRL(expenses)}
           icon={Receipt}
           accent="expense"
-          delta={((expenses - prevExpenses) / prevExpenses) * 100}
+          delta={
+            capabilities.monthlyComparison
+              ? ((expenses - prevExpenses) / prevExpenses) * 100
+              : undefined
+          }
           hint="vs mês anterior"
         />
         <MetricCard
@@ -162,16 +213,45 @@ function DashboardPage() {
           label="Margem"
           value={`${margin.toFixed(1)}%`}
           icon={Percent}
-          accent={margin >= goals.margin ? "success" : "warning"}
-          hint={`meta ${goals.margin}%`}
+          accent={goals.margin > 0 && margin < goals.margin ? "warning" : "success"}
+          hint={goals.margin > 0 ? `meta ${goals.margin}%` : "sem meta"}
         />
         <MetricCard label="Ticket médio" value={formatBRL(ticket)} icon={ShoppingBag} />
         <MetricCard
           label="Meta mensal"
           value={`${goalProgress.toFixed(0)}%`}
           icon={Target}
-          hint={formatBRL(goals.revenue)}
+          hint={goals.revenue > 0 ? formatBRL(goals.revenue) : "sem meta"}
           accent={goalProgress >= 100 ? "success" : "default"}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <RoutineCard
+          title="Fechamento do dia"
+          value={formatBRL(todayProfit)}
+          detail={`${formatBRL(todayRevenue)} entrou e ${formatBRL(todayExpenses)} saiu hoje.`}
+          tone={todayProfit >= 0 ? "success" : "danger"}
+        />
+        <RoutineCard
+          title="Despesa que mais pesou"
+          value={topExpense ? topExpense.categoria : "Sem despesa"}
+          detail={
+            topExpense
+              ? `${formatBRL(topExpense.valor)} no mes atual.`
+              : "Nenhuma despesa lancada neste mes."
+          }
+          tone={topExpense ? "warning" : "neutral"}
+        />
+        <RoutineCard
+          title="Ritmo da meta"
+          value={goals.revenue > 0 ? `${goalProgress.toFixed(0)}%` : "Sem meta"}
+          detail={
+            goals.revenue > 0
+              ? `Esperado ate hoje: ${formatBRL(expectedRevenue)}.`
+              : "Configure uma meta mensal para medir o ritmo."
+          }
+          tone={goals.revenue > 0 && revenue < expectedRevenue * 0.85 ? "warning" : "success"}
         />
       </div>
 
@@ -284,16 +364,30 @@ function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="xl:col-span-2 shadow-none">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Alertas</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-2 md:grid-cols-2">
-            {alerts.map((alert, index) => (
-              <AlertRow key={index} {...alert} />
-            ))}
-          </CardContent>
-        </Card>
+        {capabilities.alerts ? (
+          <Card className="xl:col-span-2 shadow-none">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Alertas</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 md:grid-cols-2">
+              {alerts.map((alert, index) => (
+                <AlertRow key={index} {...alert} />
+              ))}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="xl:col-span-2 shadow-none">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Alertas</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AlertRow
+                type="info"
+                text="Alertas de margem, meta atrasada e despesa perto do limite ficam disponiveis a partir do plano Essencial."
+              />
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card className="shadow-none">
@@ -366,17 +460,17 @@ function buildAlerts({
   today: Date;
 }): { type: "warning" | "danger" | "info"; text: string }[] {
   const alerts: { type: "warning" | "danger" | "info"; text: string }[] = [];
-  if (margin < goals.margin)
+  if (goals.margin > 0 && margin < goals.margin)
     alerts.push({
       type: "warning",
       text: `Margem em ${margin.toFixed(1)}% — abaixo da meta (${goals.margin}%).`,
     });
-  if (goalProgress < (today.getDate() / 30) * 100 - 10)
+  if (goals.revenue > 0 && goalProgress < (today.getDate() / 30) * 100 - 10)
     alerts.push({
       type: "warning",
       text: `Meta atrasada — ${goalProgress.toFixed(0)}% no dia ${today.getDate()}.`,
     });
-  if (expenses > goals.maxExpenses * 0.85)
+  if (goals.maxExpenses > 0 && expenses > goals.maxExpenses * 0.85)
     alerts.push({
       type: "danger",
       text: `Despesas em ${formatBRL(expenses)}, próximas do limite (${formatBRL(goals.maxExpenses)}).`,
@@ -412,6 +506,36 @@ function TodayRow({
         {sub}
       </div>
     </div>
+  );
+}
+
+function RoutineCard({
+  title,
+  value,
+  detail,
+  tone,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  tone: "success" | "warning" | "danger" | "neutral";
+}) {
+  const toneClass = {
+    success: "text-success",
+    warning: "text-warning",
+    danger: "text-destructive",
+    neutral: "text-foreground",
+  }[tone];
+  return (
+    <Card className="shadow-none">
+      <CardContent className="p-4">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {title}
+        </div>
+        <div className={cn("mt-1.5 text-xl font-semibold tabular-nums", toneClass)}>{value}</div>
+        <div className="mt-1 text-sm text-muted-foreground">{detail}</div>
+      </CardContent>
+    </Card>
   );
 }
 

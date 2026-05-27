@@ -1,30 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { format, parseISO, startOfMonth } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Bot, RefreshCcw, Save, Send } from "lucide-react";
+import { Bot, RefreshCcw, Send } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  formatBRL,
-  getMonthlyOwnerNote,
-  listAdminAiInsights,
-  listStores,
-  listStoreMonthlyResults,
-  saveMonthlyOwnerNote,
-} from "@/lib/data";
+import { formatBRL, listAdminAiInsights, listStores, listStoreMonthlyResults } from "@/lib/data";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/_app/admin/consultor-ia")({
@@ -41,10 +26,6 @@ type InsightResponse = {
 
 function AdminConsultorIa() {
   const queryClient = useQueryClient();
-  const today = new Date();
-  const monthStart = startOfMonth(today);
-  const [selectedStoreId, setSelectedStoreId] = useState("");
-  const [note, setNote] = useState("");
 
   const { data: rows = [] } = useQuery({
     queryKey: ["admin-store-monthly-results"],
@@ -61,19 +42,14 @@ function AdminConsultorIa() {
     queryFn: () => listAdminAiInsights("portfolio"),
   });
 
-  const { data: ownerNote } = useQuery({
-    queryKey: ["monthly-owner-note-admin", selectedStoreId, monthStart.toISOString()],
-    queryFn: () => getMonthlyOwnerNote(selectedStoreId, monthStart),
-    enabled: Boolean(selectedStoreId),
-  });
-
-  useEffect(() => {
-    if (!selectedStoreId && stores[0]?.id) setSelectedStoreId(stores[0].id);
-  }, [selectedStoreId, stores]);
-
-  useEffect(() => {
-    setNote(ownerNote?.note ?? "");
-  }, [ownerNote?.note]);
+  const planCounts = useMemo(
+    () =>
+      stores.reduce<Record<string, number>>((acc, store) => {
+        acc[store.plan] = (acc[store.plan] || 0) + 1;
+        return acc;
+      }, {}),
+    [stores],
+  );
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -95,9 +71,11 @@ function AdminConsultorIa() {
         body: JSON.stringify({
           scope: "admin_portfolio",
           metrics: {
-            scope: "admin_portfolio",
+            scope: "commercial_growth",
             period: new Date().toISOString().slice(0, 7),
             totals,
+            planCounts,
+            goal: "Gerar mais leads, aumentar recorrencia, reduzir cancelamento e vender mais Caixa Local para comercios locais.",
             stores: rows.map((row) => ({
               name: row.storeName,
               owner: row.owner,
@@ -125,22 +103,6 @@ function AdminConsultorIa() {
       toast.error(error instanceof Error ? error.message : "Erro ao gerar analise."),
   });
 
-  const noteMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedStoreId) throw new Error("Selecione uma loja.");
-      if (!note.trim()) throw new Error("Escreva sua sugestao mensal.");
-      return saveMonthlyOwnerNote({ storeId: selectedStoreId, month: monthStart, note });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["monthly-owner-note-admin", selectedStoreId, monthStart.toISOString()],
-      });
-      toast.success("Sugestao mensal salva.");
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Erro ao salvar sugestao."),
-  });
-
   const insight = adminInsights[0];
   const nextAllowedAt = insight
     ? new Date(parseISO(insight.createdAt).getTime() + 7 * 24 * 60 * 60 * 1000)
@@ -150,20 +112,23 @@ function AdminConsultorIa() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Meu Consultor IA"
-        description="Chat semanal da carteira e campo para inserir sua sugestao mensal por loja."
+        title="Consultor IA de vendas"
+        description="Insight semanal para vender mais Caixa Local, gerar leads e aumentar recorrencia."
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Metric label="Entrada mensal" value={formatBRL(rows.reduce((s, r) => s + r.revenue, 0))} />
-        <Metric label="Saida mensal" value={formatBRL(rows.reduce((s, r) => s + r.expenses, 0))} />
-        <Metric label="Lucro mensal" value={formatBRL(rows.reduce((s, r) => s + r.profit, 0))} />
+        <Metric label="Lojas na base" value={`${stores.length}`} />
+        <Metric
+          label="Receita das lojas"
+          value={formatBRL(rows.reduce((s, r) => s + r.revenue, 0))}
+        />
+        <Metric label="Planos ativos" value={`${Object.keys(planCounts).length}`} />
       </div>
 
       <Card className="shadow-none overflow-hidden">
         <CardHeader className="border-b border-border pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="text-sm font-semibold">Conversa admin</CardTitle>
+            <CardTitle className="text-sm font-semibold">Crescimento comercial</CardTitle>
             <div className="flex flex-wrap gap-2">
               {insight && (
                 <Badge variant="outline">
@@ -182,12 +147,12 @@ function AdminConsultorIa() {
           <ChatBubble
             icon={Bot}
             title="Caixa Local"
-            text="Gere um insight grande por semana para enxergar quais lojas merecem atencao primeiro."
+            text="Gere um insight semanal com ideias praticas para atrair lojistas, transformar conversas em assinatura e manter clientes recorrentes."
           />
           {insight ? (
             <ChatBubble
               icon={Bot}
-              title="Insight semanal da carteira"
+              title="Insight semanal de vendas"
               text={[
                 insight.summary,
                 `Maior oportunidade: ${insight.opportunity}`,
@@ -197,11 +162,7 @@ function AdminConsultorIa() {
               meta={format(parseISO(insight.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
             />
           ) : (
-            <ChatBubble
-              icon={Bot}
-              title="Insight semanal da carteira"
-              text="Nenhum insight ainda."
-            />
+            <ChatBubble icon={Bot} title="Insight semanal de vendas" text="Nenhum insight ainda." />
           )}
           <div className="flex justify-end">
             <Button
@@ -217,45 +178,6 @@ function AdminConsultorIa() {
               )}
               Gerar insight semanal
             </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-none">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Sugestao mensal do Leo</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-[260px_1fr_auto] gap-3">
-            <Select value={selectedStoreId} onValueChange={setSelectedStoreId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione a loja" />
-              </SelectTrigger>
-              <SelectContent>
-                {stores.map((store) => (
-                  <SelectItem key={store.id} value={store.id}>
-                    {store.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Textarea
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Escreva a orientacao que o lojista vai ver no dia 1 deste mes."
-              className="min-h-24"
-            />
-            <Button
-              className="gap-2 self-start"
-              onClick={() => noteMutation.mutate()}
-              disabled={noteMutation.isPending || !selectedStoreId}
-            >
-              <Save className="h-4 w-4" />
-              Salvar
-            </Button>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            Esta mensagem aparece no Meu Consultor IA do lojista no mes selecionado.
           </div>
         </CardContent>
       </Card>

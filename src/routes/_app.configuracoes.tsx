@@ -10,11 +10,17 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { PlansCard } from "@/components/admin/plans-card";
-import { useSession } from "@/lib/auth";
-import { getCurrentStore, listSubscriptionPlans, updateStore } from "@/lib/data";
+import { cacheProfile, useSession } from "@/lib/auth";
+import {
+  getCurrentStore,
+  getPlanCapabilities,
+  listSubscriptionPlans,
+  updateProfileAppearance,
+  updateStore,
+} from "@/lib/data";
 
 export const Route = createFileRoute("/_app/configuracoes")({
-  head: () => ({ meta: [{ title: "Configurações — Caixa Local" }] }),
+  head: () => ({ meta: [{ title: "Configuracoes - Caixa Local" }] }),
   component: ConfigPage,
 });
 
@@ -31,6 +37,33 @@ function ConfigPage() {
     queryKey: ["subscription-plans"],
     queryFn: () => listSubscriptionPlans(),
     enabled: Boolean(isOwner),
+  });
+  const profileMutation = useMutation({
+    mutationFn: (payload: FormData) =>
+      updateProfileAppearance({
+        profileId: session!.profile.id,
+        profileInitial: String(payload.get("profileInitial") || ""),
+        profileColor: String(payload.get("profileColor") || "#111827"),
+      }),
+    onSuccess: (profile) => {
+      cacheProfile(profile);
+      toast.success(
+        "Perfil atualizado. Entre novamente ou recarregue a pagina para refletir no topo.",
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar perfil."),
+  });
+  const dailyClosingMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      updateStore(store!.id, { dailyClosingWhatsappEnabled: enabled }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["current-store"] });
+      queryClient.invalidateQueries({ queryKey: ["daily-store-results"] });
+      toast.success("Preferencia de WhatsApp atualizada.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar preferencia."),
   });
 
   const mutation = useMutation({
@@ -52,13 +85,15 @@ function ConfigPage() {
   });
 
   if (!store)
-    return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada à sua conta.</div>;
+    return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
+
+  const capabilities = getPlanCapabilities(store.plan);
 
   return (
     <div className="space-y-5 max-w-3xl">
       <PageHeader
-        title="Configurações"
-        description="Dados da loja, equipe e preferências de notificação."
+        title="Configuracoes"
+        description="Dados da loja, equipe e preferencias de notificacao."
       />
 
       <Card className="shadow-none">
@@ -76,7 +111,7 @@ function ConfigPage() {
             <Field label="Nome do estabelecimento">
               <Input name="name" defaultValue={store.name} />
             </Field>
-            <Field label="Responsável">
+            <Field label="Responsavel">
               <Input name="owner" defaultValue={store.owner} />
             </Field>
             <Field label="Segmento">
@@ -102,24 +137,74 @@ function ConfigPage() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Notificações</CardTitle>
+          <CardTitle className="text-sm font-semibold">Perfil</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="grid grid-cols-1 md:grid-cols-[120px_160px_auto] gap-4 items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              profileMutation.mutate(new FormData(event.currentTarget));
+            }}
+          >
+            <Field label="Letra">
+              <Input
+                name="profileInitial"
+                maxLength={1}
+                defaultValue={session?.profile.profileInitial || store.owner.slice(0, 1)}
+              />
+            </Field>
+            <Field label="Cor do fundo">
+              <Input
+                name="profileColor"
+                type="color"
+                defaultValue={session?.profile.profileColor || "#111827"}
+              />
+            </Field>
+            <Button type="submit" size="sm" className="gap-2" disabled={profileMutation.isPending}>
+              <Save className="h-4 w-4" />
+              {profileMutation.isPending ? "Salvando..." : "Salvar perfil"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardHeader>
+          <CardTitle className="text-sm font-semibold">Notificacoes</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <ToggleRow
-            label="Alerta diário de fechamento"
-            hint="Resumo do caixa às 19h por WhatsApp."
-            defaultChecked
+            label="Alerta diario de fechamento"
+            hint={
+              capabilities.dailyWhatsappSummary
+                ? "Resumo do caixa por WhatsApp."
+                : "Disponivel a partir do plano Essencial."
+            }
+            checked={Boolean(store.dailyClosingWhatsappEnabled)}
+            onCheckedChange={(checked) => dailyClosingMutation.mutate(checked)}
+            disabled={!capabilities.dailyWhatsappSummary}
           />
           <Separator />
           <ToggleRow
             label="Aviso de meta atrasada"
-            hint="Notifica quando a meta do mês não está no ritmo."
-            defaultChecked
+            hint={
+              capabilities.alerts
+                ? "Notifica quando a meta do mes nao esta no ritmo."
+                : "Disponivel a partir do plano Essencial."
+            }
+            defaultChecked={capabilities.alerts}
+            disabled={!capabilities.alerts}
           />
           <Separator />
           <ToggleRow
             label="Aviso de despesa alta"
-            hint="Alerta quando despesas superam 85% do limite."
+            hint={
+              capabilities.alerts
+                ? "Alerta quando despesas superam 85% do limite."
+                : "Disponivel a partir do plano Essencial."
+            }
+            disabled={!capabilities.alerts}
           />
         </CardContent>
       </Card>
@@ -132,7 +217,9 @@ function ConfigPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm font-medium">Caixa Local {store.plan}</div>
-              <div className="text-xs text-muted-foreground">Status atual: {store.status}</div>
+              <div className="text-xs text-muted-foreground">
+                {capabilities.maxUsers} usuario(s) por loja. Status atual: {store.status}
+              </div>
             </div>
             <Button variant="outline" size="sm" disabled>
               Gerenciado pelo admin
@@ -157,10 +244,16 @@ function ToggleRow({
   label,
   hint,
   defaultChecked,
+  checked,
+  onCheckedChange,
+  disabled,
 }: {
   label: string;
   hint: string;
   defaultChecked?: boolean;
+  checked?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
@@ -168,7 +261,12 @@ function ToggleRow({
         <div className="text-sm font-medium">{label}</div>
         <div className="text-xs text-muted-foreground">{hint}</div>
       </div>
-      <Switch defaultChecked={defaultChecked} />
+      <Switch
+        checked={checked}
+        defaultChecked={defaultChecked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+      />
     </div>
   );
 }

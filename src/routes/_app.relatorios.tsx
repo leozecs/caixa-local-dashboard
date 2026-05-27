@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -11,13 +11,28 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { FileSpreadsheet, FileText } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  FileArchive,
+  FileSpreadsheet,
+  FileText,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
+import JSZip from "jszip";
 import { format, isSameMonth, parseISO, startOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { MetricCard } from "@/components/metric-card";
 import {
   Select,
@@ -26,8 +41,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useSession } from "@/lib/auth";
-import { formatBRL, getCurrentStore, getMonthlyHistory, listEntries, type Entry } from "@/lib/data";
+import {
+  formatBRL,
+  downloadEntryAttachment,
+  getCurrentStore,
+  getGoals,
+  getMonthlyHistory,
+  getPlanCapabilities,
+  listStoreAttachments,
+  listEntries,
+  saveEntry,
+  type Entry,
+} from "@/lib/data";
+import {
+  parseFinancialFile,
+  reconcileImportedEntries,
+  type ImportedEntry,
+  type ReconciliationRow,
+} from "@/lib/importers";
 
 export const Route = createFileRoute("/_app/relatorios")({
   head: () => ({ meta: [{ title: "Relatorios - Caixa Local" }] }),
@@ -35,6 +74,7 @@ export const Route = createFileRoute("/_app/relatorios")({
 });
 
 function RelatoriosPage() {
+  const queryClient = useQueryClient();
   const { session } = useSession();
   const months = useMemo(
     () =>
@@ -47,6 +87,12 @@ function RelatoriosPage() {
     [],
   );
   const [selected, setSelected] = useState(months[0].value);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [importKind, setImportKind] = useState<"excel" | "pdf" | "conciliacao">("excel");
+  const [importRows, setImportRows] = useState<ImportedEntry[]>([]);
+  const [reconciliationRows, setReconciliationRows] = useState<ReconciliationRow[]>([]);
+  const [importPreviewOpen, setImportPreviewOpen] = useState(false);
+  const [reconciliationOpen, setReconciliationOpen] = useState(false);
   const selectedDate = parseISO(selected);
 
   const { data: store } = useQuery({
@@ -64,13 +110,50 @@ function RelatoriosPage() {
   const { data: history = [] } = useQuery({
     queryKey: ["monthly-history", store?.id],
     queryFn: () => getMonthlyHistory(store!.id),
+    enabled: Boolean(store?.id && getPlanCapabilities(store.plan).monthlyComparison),
+  });
+  const { data: goals = { revenue: 0, margin: 0, maxExpenses: 0 } } = useQuery({
+    queryKey: ["goals", store?.id, selected],
+    queryFn: () => getGoals(store!.id, selectedDate),
     enabled: Boolean(store?.id),
+  });
+
+  const importMutation = useMutation({
+    mutationFn: async (rows: ImportedEntry[]) => {
+      if (!store) throw new Error("Loja nao carregada.");
+      await Promise.all(
+        rows.map((row) =>
+          saveEntry({
+            storeId: store.id,
+            date: row.date,
+            type: row.type,
+            category: row.category,
+            description: row.description,
+            paymentMethod: row.paymentMethod,
+            amount: row.amount,
+          }),
+        ),
+      );
+    },
+    onSuccess: (_data, rows) => {
+      queryClient.invalidateQueries({ queryKey: ["entries"] });
+      queryClient.invalidateQueries({ queryKey: ["entries-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
+      toast.success(`${rows.length} lancamento(s) importado(s).`);
+      setImportPreviewOpen(false);
+      setReconciliationOpen(false);
+      setImportRows([]);
+      setReconciliationRows([]);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao importar lancamentos."),
   });
 
   if (!store)
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
 
   const storeName = store.name;
+  const capabilities = getPlanCapabilities(store.plan);
   const monthEntries = entries.filter((entry) => isSameMonth(parseISO(entry.date), selectedDate));
   const rev = monthEntries
     .filter((entry) => entry.type === "receita")
@@ -94,6 +177,9 @@ function RelatoriosPage() {
     },
     [],
   );
+  const topExpense = byCat
+    .filter((row) => row.despesa > 0)
+    .sort((a, b) => b.despesa - a.despesa)[0];
 
   function exportCsv() {
     const header = ["Data", "Tipo", "Categoria", "Descricao", "Pagamento", "Valor"];
@@ -140,6 +226,69 @@ function RelatoriosPage() {
     popup.document.close();
   }
 
+  function openImport(kind: "excel" | "pdf" | "conciliacao") {
+    setImportKind(kind);
+    importInputRef.current?.click();
+  }
+
+  async function handleImport(fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+    try {
+      const rows = await parseFinancialFile(file);
+      if (!rows.length) {
+        toast.error("Nao encontrei lancamentos reconheciveis no arquivo.");
+        return;
+      }
+
+      if (importKind === "conciliacao") {
+        setReconciliationRows(reconcileImportedEntries(rows, entries));
+        setReconciliationOpen(true);
+      } else {
+        setImportRows(rows);
+        setImportPreviewOpen(true);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao ler arquivo.");
+    } finally {
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
+  }
+
+  async function exportCompleteZip() {
+    if (!store) return;
+    const zip = new JSZip();
+    const attachments = await listStoreAttachments(store.id);
+    zip.file(
+      "loja.json",
+      JSON.stringify(
+        {
+          store,
+          goals,
+          attachments,
+          exportedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    );
+    zip.file("lancamentos.csv", buildCsv(entries));
+    zip.file("relatorio-mensal.csv", buildCsv(monthEntries));
+    const attachmentsFolder = zip.folder("comprovantes");
+    for (const attachment of attachments) {
+      const blob = await downloadEntryAttachment(attachment);
+      attachmentsFolder?.file(`${attachment.entryId}/${attachment.fileName}`, blob);
+    }
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `caixa-local-backup-${storeName}-${format(new Date(), "yyyy-MM-dd")}.zip`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Export completo gerado.");
+  }
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -147,12 +296,57 @@ function RelatoriosPage() {
         description="Fechamento mensal, evolucao do negocio e exportacao padronizada."
         actions={
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" className="gap-2" onClick={exportPdf}>
-              <FileText className="h-4 w-4" /> Exportar PDF
-            </Button>
-            <Button size="sm" variant="outline" className="gap-2" onClick={exportCsv}>
-              <FileSpreadsheet className="h-4 w-4" /> Exportar Excel
-            </Button>
+            <input
+              ref={importInputRef}
+              type="file"
+              className="hidden"
+              accept={
+                importKind === "excel"
+                  ? ".xlsx,.xls,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                  : importKind === "conciliacao"
+                    ? ".xlsx,.xls,.csv,.pdf,application/pdf,text/csv"
+                    : ".pdf,application/pdf"
+              }
+              onChange={(event) => handleImport(event.target.files)}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="gap-2">
+                  <Upload className="h-4 w-4" /> Importar
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => openImport("excel")}>
+                  <FileSpreadsheet className="h-4 w-4" /> Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openImport("pdf")}>
+                  <FileText className="h-4 w-4" /> PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openImport("conciliacao")}>
+                  <CheckCircle2 className="h-4 w-4" /> Conciliar extrato
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="gap-2">
+                  <FileText className="h-4 w-4" /> Exportar
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={exportCsv}>
+                  <FileSpreadsheet className="h-4 w-4" /> Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportPdf}>
+                  <FileText className="h-4 w-4" /> PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportCompleteZip}>
+                  <FileArchive className="h-4 w-4" /> Dados completos
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         }
       />
@@ -180,55 +374,91 @@ function RelatoriosPage() {
         <MetricCard label="Margem" value={`${margin.toFixed(1)}%`} />
       </div>
 
-      <Card className="shadow-none">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Evolucao dos ultimos 6 meses</CardTitle>
-        </CardHeader>
-        <CardContent className="h-[300px] pl-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={history} margin={{ left: 8, right: 12, top: 8 }}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="oklch(0.91 0.008 247)"
-                vertical={false}
-              />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-              <YAxis
-                tick={{ fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(value) => `R$${(Number(value) / 1000).toFixed(0)}k`}
-              />
-              <Tooltip formatter={(value: unknown) => formatBRL(Number(value))} />
-              <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
-              <Line
-                type="monotone"
-                dataKey="faturamento"
-                name="Faturamento"
-                stroke="oklch(0.58 0.13 155)"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="despesas"
-                name="Despesas"
-                stroke="oklch(0.56 0.2 27)"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="lucro"
-                name="Lucro"
-                stroke="oklch(0.45 0.1 230)"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {capabilities.monthlyComparison ? (
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Evolucao dos ultimos 6 meses</CardTitle>
+          </CardHeader>
+          <CardContent className="h-[300px] pl-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={history} margin={{ left: 8, right: 12, top: 8 }}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="oklch(0.91 0.008 247)"
+                  vertical={false}
+                />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value) => `R$${(Number(value) / 1000).toFixed(0)}k`}
+                />
+                <Tooltip formatter={(value: unknown) => formatBRL(Number(value))} />
+                <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
+                <Line
+                  type="monotone"
+                  dataKey="faturamento"
+                  name="Faturamento"
+                  stroke="oklch(0.58 0.13 155)"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="despesas"
+                  name="Despesas"
+                  stroke="oklch(0.56 0.2 27)"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="lucro"
+                  name="Lucro"
+                  stroke="oklch(0.45 0.1 230)"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {capabilities.interpretedReports ? (
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Relatorio interpretado</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-3">
+            <InterpretationCard
+              title="Onde ganhou"
+              text={
+                rev > 0
+                  ? `A loja gerou ${formatBRL(rev)} no mes, com margem de ${margin.toFixed(1)}%.`
+                  : "Ainda nao ha receita suficiente para apontar ganho real."
+              }
+            />
+            <InterpretationCard
+              title="Onde perdeu"
+              text={
+                topExpense
+                  ? `${topExpense.categoria} foi a maior saida: ${formatBRL(topExpense.despesa)}.`
+                  : "Ainda nao ha despesa cadastrada no periodo."
+              }
+            />
+            <InterpretationCard
+              title="Ponto de atencao"
+              text={
+                lucro >= 0
+                  ? "O lucro esta positivo; mantenha lancamentos diarios para validar tendencia."
+                  : "O mes esta negativo; revise despesas fixas e precificacao antes de crescer volume."
+              }
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card className="shadow-none">
         <CardHeader className="pb-2">
@@ -270,6 +500,26 @@ function RelatoriosPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ImportPreviewDialog
+        open={importPreviewOpen}
+        rows={importRows}
+        saving={importMutation.isPending}
+        onOpenChange={setImportPreviewOpen}
+        onConfirm={() => importMutation.mutate(importRows)}
+      />
+
+      <ReconciliationDialog
+        open={reconciliationOpen}
+        rows={reconciliationRows}
+        saving={importMutation.isPending}
+        onOpenChange={setReconciliationOpen}
+        onImportMissing={() =>
+          importMutation.mutate(
+            reconciliationRows.filter((row) => row.status === "missing").map(stripStatus),
+          )
+        }
+      />
     </div>
   );
 }
@@ -283,6 +533,180 @@ function buildReportRows(entries: Entry[]) {
     entry.paymentMethod,
     `${entry.type === "receita" ? "" : "-"}${entry.amount.toFixed(2).replace(".", ",")}`,
   ]);
+}
+
+function buildCsv(entries: Entry[]) {
+  const header = ["Data", "Tipo", "Categoria", "Descricao", "Pagamento", "Valor"];
+  return [header, ...buildReportRows(entries)]
+    .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";"))
+    .join("\n");
+}
+
+function stripStatus(row: ReconciliationRow): ImportedEntry {
+  return {
+    date: row.date,
+    type: row.type,
+    category: row.category,
+    description: row.description,
+    paymentMethod: row.paymentMethod,
+    amount: row.amount,
+    source: row.source,
+  };
+}
+
+function ImportPreviewDialog({
+  open,
+  rows,
+  saving,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean;
+  rows: ImportedEntry[];
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Conferir importacao</DialogTitle>
+        </DialogHeader>
+        <ImportedRowsTable rows={rows} />
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button onClick={onConfirm} disabled={saving || !rows.length}>
+            {saving ? "Importando..." : `Importar ${rows.length} lancamento(s)`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReconciliationDialog({
+  open,
+  rows,
+  saving,
+  onOpenChange,
+  onImportMissing,
+}: {
+  open: boolean;
+  rows: ReconciliationRow[];
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onImportMissing: () => void;
+}) {
+  const missingCount = rows.filter((row) => row.status === "missing").length;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Conciliação do extrato</DialogTitle>
+        </DialogHeader>
+        <div className="grid grid-cols-3 gap-2 text-sm">
+          <SummaryPill
+            label="Conciliados"
+            value={rows.filter((row) => row.status === "matched").length}
+          />
+          <SummaryPill
+            label="Possiveis"
+            value={rows.filter((row) => row.status === "possible").length}
+          />
+          <SummaryPill label="Nao lancados" value={missingCount} />
+        </div>
+        <ImportedRowsTable rows={rows} reconciled />
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Fechar
+          </Button>
+          <Button onClick={onImportMissing} disabled={saving || missingCount === 0}>
+            {saving ? "Importando..." : `Criar ${missingCount} faltante(s)`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SummaryPill({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-border px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function ImportedRowsTable({
+  rows,
+  reconciled = false,
+}: {
+  rows: Array<ImportedEntry | ReconciliationRow>;
+  reconciled?: boolean;
+}) {
+  return (
+    <div className="max-h-[420px] overflow-auto rounded-md border border-border">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 bg-muted text-xs text-muted-foreground">
+          <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium">
+            <th>Data</th>
+            <th>Tipo</th>
+            <th>Categoria</th>
+            <th>Descricao</th>
+            <th className="text-right">Valor</th>
+            {reconciled && <th>Status</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={`${row.source}-${index}`} className="border-t border-border">
+              <td className="px-3 py-2">{format(parseISO(row.date), "dd/MM/yyyy")}</td>
+              <td className="px-3 py-2">{row.type === "receita" ? "Receita" : "Despesa"}</td>
+              <td className="px-3 py-2">{row.category}</td>
+              <td className="px-3 py-2 text-muted-foreground">{row.description}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatBRL(row.amount)}</td>
+              {reconciled && "status" in row && (
+                <td className="px-3 py-2">
+                  <ReconciliationBadge status={row.status} />
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ReconciliationBadge({ status }: { status: ReconciliationRow["status"] }) {
+  const map = {
+    matched: { label: "Conciliado", cls: "border-success/40 text-success bg-success/5" },
+    possible: { label: "Possivel", cls: "border-warning/40 text-warning bg-warning/5" },
+    missing: {
+      label: "Nao lancado",
+      cls: "border-destructive/40 text-destructive bg-destructive/5",
+    },
+  }[status];
+
+  return (
+    <Badge variant="outline" className={map.cls}>
+      {map.label}
+    </Badge>
+  );
+}
+
+function InterpretationCard({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="rounded-md border border-border p-3">
+      <div className="text-sm font-medium">{title}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{text}</div>
+    </div>
+  );
 }
 
 function escapeHtml(value: string) {

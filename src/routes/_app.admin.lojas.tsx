@@ -153,6 +153,11 @@ function AdminLojas() {
 
       <Card className="shadow-none">
         <CardContent className="p-0">
+          <div className="px-4 py-3 border-b border-border text-xs text-muted-foreground">
+            Risco resume a saude financeira do mes: Saudavel tem margem e despesas dentro da meta,
+            Atencao indica margem baixa ou despesa perto do limite, Critico indica sem receita,
+            margem muito baixa ou despesa acima do limite.
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-xs text-muted-foreground border-b border-border bg-muted/40">

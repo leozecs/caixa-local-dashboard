@@ -21,7 +21,13 @@ import {
   X,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth";
-import { getCurrentStore, listStoreOperationalAlerts, planHasAlerts, type Store } from "@/lib/data";
+import {
+  getCurrentStore,
+  getPlanCapabilities,
+  listStoreOperationalAlerts,
+  planHasAlerts,
+  type Store,
+} from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -79,12 +85,16 @@ const MONTHS = [
   "Dezembro",
 ];
 
+const DISMISSED_ALERTS_KEY = "caixa-local-dismissed-alerts";
+
 function AppShell() {
   const navigate = useNavigate();
   const { session, loading } = useSession();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [month, setMonth] = useState(() => new Date().getMonth());
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>(() =>
+    readDismissedAlertIds(),
+  );
   const isAdmin = session?.role === "owner";
   const inAdmin = pathname.startsWith("/admin");
   const { data: currentStore } = useQuery({
@@ -97,12 +107,19 @@ function AppShell() {
     queryFn: () => listStoreOperationalAlerts(currentStore!.id),
     enabled: Boolean(currentStore?.id && planHasAlerts(currentStore.plan)),
   });
+  const activeStoreAlerts = useMemo(
+    () => storeAlerts.filter((alert) => !dismissedAlertIds.includes(alert.id)),
+    [dismissedAlertIds, storeAlerts],
+  );
   const navItems: NavItem[] = useMemo(() => {
     if (inAdmin && isAdmin) return [...ADMIN_NAV];
+    const capabilities = currentStore ? getPlanCapabilities(currentStore.plan) : null;
     return STORE_NAV.filter(
-      (item) => item.to !== "/alertas" || Boolean(currentStore && planHasAlerts(currentStore.plan)),
-    ).map((item) => (item.to === "/alertas" ? { ...item, badge: storeAlerts.length } : item));
-  }, [currentStore, inAdmin, isAdmin, storeAlerts.length]);
+      (item) =>
+        (item.to !== "/alertas" || Boolean(capabilities?.alerts)) &&
+        (item.to !== "/consultor-ia" || Boolean(capabilities?.aiConsultant)),
+    ).map((item) => (item.to === "/alertas" ? { ...item, badge: activeStoreAlerts.length } : item));
+  }, [activeStoreAlerts.length, currentStore, inAdmin, isAdmin]);
 
   useEffect(() => {
     if (!loading && !session) navigate({ to: "/login" });
@@ -113,6 +130,13 @@ function AppShell() {
     if (session.role === "owner" && !inAdmin) navigate({ to: "/admin" });
     if (session.role === "lojista" && inAdmin) navigate({ to: "/dashboard" });
   }, [loading, session, inAdmin, navigate]);
+
+  useEffect(() => {
+    if (pathname !== "/alertas" || !storeAlerts.length) return;
+    const ids = storeAlerts.map((alert) => alert.id);
+    writeDismissedAlertIds(ids);
+    setDismissedAlertIds(ids);
+  }, [pathname, storeAlerts]);
 
   if (loading || !session) return null;
 
@@ -166,16 +190,17 @@ function AppShell() {
           <StoreSwitcher inAdmin={inAdmin} store={isAdmin ? null : currentStore || null} />
 
           <div className="ml-auto flex items-center gap-2">
-            <MonthSelector month={month} setMonth={setMonth} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-2">
-                  <div className="h-7 w-7 rounded-full bg-primary text-primary-foreground grid place-items-center text-xs font-medium">
-                    {session.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join("")}
+                  <div
+                    className="h-7 w-7 rounded-full grid place-items-center text-xs font-semibold"
+                    style={{
+                      backgroundColor: session.profile.profileColor || "#111827",
+                      color: readableTextColor(session.profile.profileColor || "#111827"),
+                    }}
+                  >
+                    {profileInitial(session.profile.profileInitial, session.name)}
                   </div>
                   <span className="hidden sm:inline text-sm">{session.name.split(" ")[0]}</span>
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -187,7 +212,13 @@ function AppShell() {
                   <div className="text-xs text-muted-foreground font-normal">{session.email}</div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate({ to: "/configuracoes" })}>
+                <DropdownMenuItem
+                  onClick={() =>
+                    navigate({
+                      to: session.role === "owner" ? "/admin/configuracoes" : "/configuracoes",
+                    })
+                  }
+                >
                   <Settings className="h-4 w-4" /> Configurações
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -238,28 +269,6 @@ function AppShell() {
       </div>
     </div>
   );
-
-  function MonthSelector({ month, setMonth }: { month: number; setMonth: (m: number) => void }) {
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-1.5 h-8">
-            <span className="text-sm">
-              {MONTHS[month]} {new Date().getFullYear()}
-            </span>
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-          {MONTHS.map((m, i) => (
-            <DropdownMenuItem key={m} onClick={() => setMonth(i)}>
-              {m} {new Date().getFullYear()}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  }
 }
 
 function BrandBlock({ compact = false }: { compact?: boolean }) {
@@ -362,6 +371,35 @@ function StatusDot({ variant }: { variant: "success" | "warning" | "info" | "dan
     danger: "bg-destructive",
   }[variant];
   return <span className={cn("inline-block h-1.5 w-1.5 rounded-full", cls)} />;
+}
+
+function profileInitial(savedInitial: string | null | undefined, name: string) {
+  return (savedInitial || name.trim().slice(0, 1) || "C").slice(0, 1).toUpperCase();
+}
+
+function readableTextColor(background: string) {
+  const hex = background.replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return "#ffffff";
+  const red = parseInt(hex.slice(0, 2), 16);
+  const green = parseInt(hex.slice(2, 4), 16);
+  const blue = parseInt(hex.slice(4, 6), 16);
+  const brightness = (red * 299 + green * 587 + blue * 114) / 1000;
+  return brightness > 180 ? "#111827" : "#ffffff";
+}
+
+function readDismissedAlertIds() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_ALERTS_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissedAlertIds(ids: string[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(ids));
 }
 
 export { StatusDot };

@@ -11,6 +11,7 @@ import {
   defaultDailyClosingMessageTemplate,
   formatBRL,
   getAppSetting,
+  getPlanCapabilities,
   listAdminAlerts,
   listDailyStoreResults,
   renderDailyClosingMessage,
@@ -37,8 +38,8 @@ function Alertas() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Alertas de assinaturas"
-        description="Vencimentos proximos, pagamentos atrasados e riscos de cobranca."
+        title="Alertas de faturamento mensal"
+        description="Vencimentos, pagamentos atrasados e lembrete do faturamento mensal no dia 1."
       />
 
       <Card className="shadow-none">
@@ -99,9 +100,9 @@ function Alertas() {
       <Card className="shadow-none">
         <CardContent className="p-0">
           <div className="px-4 py-3 border-b border-border">
-            <div className="text-sm font-semibold">Fechamento diario por loja</div>
+            <div className="text-sm font-semibold">Fechamento diario no WhatsApp</div>
             <div className="text-xs text-muted-foreground">
-              Entradas, saidas e lucro de hoje para envio manual no WhatsApp.
+              Apenas lojas que ligaram o alerta diario nas configuracoes aparecem aqui.
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -117,6 +118,7 @@ function Alertas() {
               </thead>
               <tbody>
                 {dailyResults.map((row) => {
+                  const canSendDailySummary = getPlanCapabilities(row.plan).dailyWhatsappSummary;
                   const message = renderDailyClosingMessage(dailyTemplate, {
                     loja: row.storeName,
                     responsavel: row.owner,
@@ -141,19 +143,32 @@ function Alertas() {
                         {formatBRL(row.profit)}
                       </td>
                       <td className="px-4 py-2.5 text-right">
-                        <Button size="sm" variant="outline" className="gap-2" asChild>
-                          <a
-                            href={`https://wa.me/?text=${encodeURIComponent(message)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <Send className="h-4 w-4" /> Enviar
-                          </a>
-                        </Button>
+                        {canSendDailySummary ? (
+                          <Button size="sm" variant="outline" className="gap-2" asChild>
+                            <a
+                              href={`https://wa.me/?text=${encodeURIComponent(message)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <Send className="h-4 w-4" /> Enviar
+                            </a>
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" disabled>
+                            Plano Economico
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   );
                 })}
+                {!dailyResults.length && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      Nenhuma loja optou pelo alerta diario de fechamento no WhatsApp.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

@@ -18,7 +18,7 @@ type AiInsight = {
 };
 
 const AI_SYSTEM_PROMPT =
-  'Voce e um consultor financeiro para pequenos comercios locais no Brasil. Analise apenas os dados recebidos, seja pratico e nao invente numeros. Responda exclusivamente em JSON valido no formato {"summary":"...","opportunity":"...","risk":"...","actions":["...","...","..."]}.';
+  'Voce e um consultor pratico para o Caixa Local. Se os dados tiverem scope "commercial_growth", foque em vender mais o Caixa Local, gerar leads, aumentar recorrencia e reduzir cancelamento. Caso contrario, foque na gestao financeira de pequenos comercios locais no Brasil. Analise apenas os dados recebidos, seja pratico e nao invente numeros. Responda exclusivamente em JSON valido no formato {"summary":"...","opportunity":"...","risk":"...","actions":["...","...","..."]}.';
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
@@ -137,6 +137,28 @@ async function canAccessStore(env: unknown, userId: string, storeId: string) {
   if (!memberResponse.ok) return false;
   const members = (await memberResponse.json()) as Array<{ id?: string }>;
   return Boolean(members[0]?.id);
+}
+
+function normalizePlanName(plan: string) {
+  return plan
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
+function planCanUseAiConsultant(plan: string) {
+  return normalizePlanName(plan).includes("gestao local");
+}
+
+async function getStorePlan(env: unknown, storeId: string) {
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/stores?id=eq.${encodeURIComponent(storeId)}&select=plan&limit=1`,
+  );
+  if (!response.ok) return "";
+  const rows = (await response.json()) as Array<{ plan?: string }>;
+  return rows[0]?.plan || "";
 }
 
 async function isOwner(env: unknown, userId: string) {
@@ -653,6 +675,14 @@ async function handleAiInsights(request: Request, env: unknown) {
       const canAccess = await canAccessStore(env, user.id, storeId);
       if (!canAccess) {
         return jsonResponse({ message: "Voce nao tem acesso a esta loja." }, { status: 403 });
+      }
+
+      const plan = await getStorePlan(env, storeId);
+      if (!planCanUseAiConsultant(plan)) {
+        return jsonResponse(
+          { message: "O Consultor IA esta disponivel apenas no plano Gestao Local." },
+          { status: 403 },
+        );
       }
 
       const latestCreatedAt = await getLatestAiInsightCreatedAt(env, storeId);

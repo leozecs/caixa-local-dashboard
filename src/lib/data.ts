@@ -41,6 +41,7 @@ export interface Store {
   risk: Risk;
   city: string;
   cnpj?: string | null;
+  dailyClosingWhatsappEnabled?: boolean;
 }
 
 export interface Entry {
@@ -52,6 +53,17 @@ export interface Entry {
   description?: string | null;
   paymentMethod: PaymentMethod;
   amount: number;
+}
+
+export interface EntryAttachment {
+  id: string;
+  storeId: string;
+  entryId: string;
+  filePath: string;
+  fileName: string;
+  fileType: string | null;
+  fileSize: number;
+  createdAt: string;
 }
 
 export interface Goals {
@@ -146,6 +158,22 @@ export interface StoreDailyResult {
   profit: number;
 }
 
+export interface PlanCapabilities {
+  key: "economico" | "essencial" | "gestao_local" | "custom";
+  dashboard: boolean;
+  entries: boolean;
+  goals: boolean;
+  basicReports: boolean;
+  alerts: boolean;
+  monthlyComparison: boolean;
+  interpretedReports: boolean;
+  ownerMonthlyNote: boolean;
+  aiConsultant: boolean;
+  dailyWhatsappSummary: boolean;
+  maxUsers: number;
+  limitsLabel: string;
+}
+
 type StoreRow = {
   id: string;
   name: string;
@@ -156,6 +184,7 @@ type StoreRow = {
   last_access_at: string | null;
   city: string;
   cnpj: string | null;
+  daily_closing_whatsapp_enabled?: boolean | null;
   created_at: string;
 };
 
@@ -168,6 +197,17 @@ type EntryRow = {
   description: string | null;
   payment_method: PaymentMethod;
   amount: number;
+};
+
+type EntryAttachmentDbRow = {
+  id: string;
+  store_id: string;
+  entry_id: string;
+  file_path: string;
+  file_name: string;
+  file_type: string | null;
+  file_size: number;
+  created_at: string;
 };
 
 type SubscriptionDbRow = {
@@ -236,7 +276,7 @@ const DEFAULT_PLANS: SubscriptionPlan[] = [
     name: "Economico",
     amount: 59.99,
     description:
-      "Para lojas que precisam controlar o caixa sem complexidade. Inclui lancamentos de receita e despesa, dashboard mensal do mes atual, metas de faturamento e despesa, relatorios de lucro total, gastos totais e categorias configuraveis. Limite: 1 usuario por loja.",
+      "Para lojas que precisam controlar o caixa sem complexidade. Inclui lancamentos de receita e despesa, dashboard do mes atual, metas mensais, relatorios basicos e exportacao manual. Nao inclui alertas, comparativo mensal, WhatsApp diario ou Consultor IA. Limite: 1 usuario por loja.",
     active: true,
     sortOrder: 1,
   },
@@ -245,7 +285,7 @@ const DEFAULT_PLANS: SubscriptionPlan[] = [
     name: "Essencial",
     amount: 99.99,
     description:
-      "Melhor custo-beneficio para acompanhar a operacao com alertas. Inclui tudo do Economico, alerta de margem, alerta de despesa, alerta de meta atrasada, historico mensal comparativo, ate 3 usuarios por loja e suporte por WhatsApp em ate 1 dia util.",
+      "Melhor custo-beneficio para acompanhar a operacao com alertas. Inclui tudo do Economico, alertas, comparativo mensal, fechamento diario por WhatsApp quando ativado, ate 3 usuarios por loja e suporte por WhatsApp em ate 1 dia util.",
     active: true,
     sortOrder: 2,
   },
@@ -254,7 +294,7 @@ const DEFAULT_PLANS: SubscriptionPlan[] = [
     name: "Gestao Local",
     amount: 149.99,
     description:
-      "Plano consultivo para o cliente entender onde ganhou, perdeu e pode melhorar. Inclui tudo do Essencial, relatorio interpretado, pontos de atencao em abas filtraveis, sugestao mensal personalizada de economia, acesso ao Meu Consultor IA, ate 5 usuarios por loja e suporte por WhatsApp em ate 2h em dias uteis no horario comercial; fora do horario comercial e fins de semana, resposta em ate 1 dia.",
+      "Plano consultivo para o cliente entender onde ganhou, perdeu e pode melhorar. Inclui tudo do Essencial, relatorio interpretado, Consultor IA, ate 5 usuarios por loja e suporte por WhatsApp em ate 2h em dias uteis no horario comercial; fora do horario comercial e fins de semana, resposta em ate 1 dia.",
     active: true,
     sortOrder: 3,
   },
@@ -273,11 +313,68 @@ export function formatBRLPrecise(value: number) {
 }
 
 export function planHasAlerts(plan: Plan) {
-  const normalized = plan
+  return getPlanCapabilities(plan).alerts;
+}
+
+export function normalizePlanName(plan: Plan) {
+  return plan
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-  return normalized.includes("essencial") || normalized.includes("gestao local");
+    .toLowerCase()
+    .trim();
+}
+
+export function getPlanCapabilities(plan: Plan): PlanCapabilities {
+  const normalized = normalizePlanName(plan);
+  const base = {
+    dashboard: true,
+    entries: true,
+    goals: true,
+    basicReports: true,
+    alerts: false,
+    monthlyComparison: false,
+    interpretedReports: false,
+    ownerMonthlyNote: false,
+    aiConsultant: false,
+    dailyWhatsappSummary: false,
+    limitsLabel:
+      "Dashboard do mes atual, lancamentos, metas mensais e relatorios basicos. Sem alertas, comparativo mensal, WhatsApp diario ou Consultor IA.",
+  };
+
+  if (normalized.includes("gestao local")) {
+    return {
+      ...base,
+      key: "gestao_local",
+      alerts: true,
+      monthlyComparison: true,
+      interpretedReports: true,
+      ownerMonthlyNote: true,
+      aiConsultant: true,
+      dailyWhatsappSummary: true,
+      maxUsers: 5,
+      limitsLabel:
+        "Acesso completo para lojista: dashboard, lancamentos, metas, alertas, relatorios, comparativos, WhatsApp diario e Consultor IA. Painel admin fica restrito ao owner.",
+    };
+  }
+
+  if (normalized.includes("essencial")) {
+    return {
+      ...base,
+      key: "essencial",
+      alerts: true,
+      monthlyComparison: true,
+      dailyWhatsappSummary: true,
+      maxUsers: 3,
+      limitsLabel:
+        "Tudo do Economico, com alertas, comparativo mensal e fechamento diario por WhatsApp quando ativado. Sem Consultor IA.",
+    };
+  }
+
+  if (normalized.includes("economico")) {
+    return { ...base, key: "economico", maxUsers: 1 };
+  }
+
+  return { ...base, key: "custom", maxUsers: 1 };
 }
 
 function monthRange(month = new Date()) {
@@ -297,6 +394,19 @@ function toEntry(row: EntryRow): Entry {
     description: row.description,
     paymentMethod: row.payment_method,
     amount: row.amount / 100,
+  };
+}
+
+function toEntryAttachment(row: EntryAttachmentDbRow): EntryAttachment {
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    entryId: row.entry_id,
+    filePath: row.file_path,
+    fileName: row.file_name,
+    fileType: row.file_type,
+    fileSize: row.file_size,
+    createdAt: row.created_at,
   };
 }
 
@@ -535,10 +645,50 @@ async function getPlanAmount(planName: string) {
 
 export async function getProfile() {
   const client = requireSupabase();
-  const { data, error } = await client.from("profiles").select("id, email, name, role").single();
+  const { data, error } = await client
+    .from("profiles")
+    .select("id, email, name, role, profile_initial, profile_color")
+    .single();
 
   if (error) throw error;
-  return data as Profile;
+  return {
+    id: data.id,
+    email: data.email,
+    name: data.name,
+    role: data.role,
+    profileInitial: data.profile_initial,
+    profileColor: data.profile_color,
+  } as Profile;
+}
+
+export async function updateProfileAppearance(input: {
+  profileId: string;
+  profileInitial: string;
+  profileColor: string;
+}) {
+  const client = requireSupabase();
+  const initial = input.profileInitial.trim().slice(0, 1).toUpperCase();
+  const color = input.profileColor.trim() || "#111827";
+  const { data, error } = await client
+    .from("profiles")
+    .update({
+      profile_initial: initial,
+      profile_color: color,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.profileId)
+    .select("id, email, name, role, profile_initial, profile_color")
+    .single();
+
+  if (error) throw error;
+  return {
+    id: data.id,
+    email: data.email,
+    name: data.name,
+    role: data.role,
+    profileInitial: data.profile_initial,
+    profileColor: data.profile_color,
+  } as Profile;
 }
 
 export async function getCurrentStore(profile: Profile) {
@@ -609,18 +759,21 @@ export async function createStore(input: {
 
 export async function updateStore(id: string, input: Partial<Store>) {
   const client = requireSupabase();
+  const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.name !== undefined) payload.name = input.name;
+  if (input.owner !== undefined) payload.owner_name = input.owner;
+  if (input.segment !== undefined) payload.segment = input.segment;
+  if (input.city !== undefined) payload.city = input.city;
+  if (input.status !== undefined) payload.status = input.status;
+  if (input.plan !== undefined) payload.plan = input.plan;
+  if (input.cnpj !== undefined) payload.cnpj = input.cnpj;
+  if (input.dailyClosingWhatsappEnabled !== undefined) {
+    payload.daily_closing_whatsapp_enabled = input.dailyClosingWhatsappEnabled;
+  }
+
   const { data, error } = await client
     .from("stores")
-    .update({
-      name: input.name,
-      owner_name: input.owner,
-      segment: input.segment,
-      city: input.city,
-      status: input.status,
-      plan: input.plan,
-      cnpj: input.cnpj,
-      updated_at: new Date().toISOString(),
-    })
+    .update(payload)
     .eq("id", id)
     .select()
     .single();
@@ -712,6 +865,103 @@ export async function deleteEntry(id: string) {
   const client = requireSupabase();
   const { error } = await client.from("financial_entries").delete().eq("id", id);
   if (error) throw error;
+}
+
+export async function listEntryAttachments(entryId: string): Promise<EntryAttachment[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("entry_attachments")
+    .select("id, store_id, entry_id, file_path, file_name, file_type, file_size, created_at")
+    .eq("entry_id", entryId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+
+  return ((data || []) as EntryAttachmentDbRow[]).map(toEntryAttachment);
+}
+
+export async function listStoreAttachments(storeId: string): Promise<EntryAttachment[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("entry_attachments")
+    .select("id, store_id, entry_id, file_path, file_name, file_type, file_size, created_at")
+    .eq("store_id", storeId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+
+  return ((data || []) as EntryAttachmentDbRow[]).map(toEntryAttachment);
+}
+
+export async function uploadEntryAttachment(input: {
+  storeId: string;
+  entryId: string;
+  file: File;
+}) {
+  const client = requireSupabase();
+  const safeName = input.file.name.replace(/[^\w.-]+/g, "-");
+  const filePath = `${input.storeId}/${input.entryId}/${crypto.randomUUID()}-${safeName}`;
+  const { error: uploadError } = await client.storage
+    .from("entry-attachments")
+    .upload(filePath, input.file, {
+      contentType: input.file.type || "application/octet-stream",
+      upsert: false,
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await client
+    .from("entry_attachments")
+    .insert({
+      store_id: input.storeId,
+      entry_id: input.entryId,
+      file_path: filePath,
+      file_name: input.file.name,
+      file_type: input.file.type || null,
+      file_size: input.file.size,
+    })
+    .select("id, store_id, entry_id, file_path, file_name, file_type, file_size, created_at")
+    .single();
+
+  if (error) throw error;
+  return toEntryAttachment(data as EntryAttachmentDbRow);
+}
+
+export async function openEntryAttachment(attachment: EntryAttachment) {
+  const client = requireSupabase();
+  const { data, error } = await client.storage
+    .from("entry-attachments")
+    .createSignedUrl(attachment.filePath, 60);
+
+  if (error) throw error;
+  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+}
+
+export async function downloadEntryAttachment(attachment: EntryAttachment) {
+  const client = requireSupabase();
+  const { data, error } = await client.storage
+    .from("entry-attachments")
+    .download(attachment.filePath);
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteEntryAttachment(attachment: EntryAttachment) {
+  const client = requireSupabase();
+  const { error } = await client.from("entry_attachments").delete().eq("id", attachment.id);
+  if (error) throw error;
+
+  const { error: storageError } = await client.storage
+    .from("entry-attachments")
+    .remove([attachment.filePath]);
+  if (storageError) throw storageError;
 }
 
 export async function getGoals(storeId: string, month = new Date()): Promise<Goals> {
@@ -955,18 +1205,20 @@ export async function listDailyStoreResults(date = new Date()): Promise<StoreDai
     totals.set(entry.store_id, current);
   });
 
-  return stores.map((store) => {
-    const total = totals.get(store.id) || { revenue: 0, expenses: 0 };
-    return {
-      storeId: store.id,
-      storeName: store.name,
-      owner: store.owner,
-      plan: store.plan,
-      revenue: total.revenue,
-      expenses: total.expenses,
-      profit: total.revenue - total.expenses,
-    };
-  });
+  return stores
+    .filter((store) => store.dailyClosingWhatsappEnabled)
+    .map((store) => {
+      const total = totals.get(store.id) || { revenue: 0, expenses: 0 };
+      return {
+        storeId: store.id,
+        storeName: store.name,
+        owner: store.owner,
+        plan: store.plan,
+        revenue: total.revenue,
+        expenses: total.expenses,
+        profit: total.revenue - total.expenses,
+      };
+    });
 }
 
 export async function listStoreOperationalAlerts(
@@ -1005,8 +1257,8 @@ export async function listStoreOperationalAlerts(
         id: "revenue-goal-behind",
         type: "revenue_goal",
         severity: revenue < expectedRevenue * 0.6 ? "critico" : "atencao",
-        title: "Faturamento abaixo da meta",
-        message: `Faturamento atual de ${formatBRL(revenue)}; ritmo esperado para hoje: ${formatBRL(expectedRevenue)}.`,
+        title: "Meta mensal abaixo do ritmo",
+        message: `Vendas do mes em ${formatBRL(revenue)}. Para cumprir a meta mensal, o ritmo esperado ate hoje seria ${formatBRL(expectedRevenue)}.`,
       });
     }
   }
@@ -1057,6 +1309,16 @@ export async function listAdminAlerts(): Promise<AdminAlert[]> {
       }
     });
 
+  if (now.getDate() === 1) {
+    alerts.unshift({
+      id: "monthly-billing-day",
+      severity: "atencao",
+      store: "Faturamento mensal",
+      message: "Hoje e dia 1: confira e envie o faturamento mensal das lojas ativas.",
+      date: now.toISOString(),
+    });
+  }
+
   if (!alerts.length) {
     alerts.push({
       id: "all-good",
@@ -1087,6 +1349,7 @@ async function hydrateStore(row: StoreRow): Promise<Store> {
     risk: computeRisk(entries, goals),
     city: row.city,
     cnpj: row.cnpj,
+    dailyClosingWhatsappEnabled: Boolean(row.daily_closing_whatsapp_enabled),
   };
 }
 

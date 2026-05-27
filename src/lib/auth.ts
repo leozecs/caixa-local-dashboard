@@ -9,6 +9,8 @@ export interface Profile {
   email: string;
   name: string;
   role: UserRole;
+  profileInitial?: string | null;
+  profileColor?: string | null;
 }
 
 export interface Session {
@@ -21,7 +23,7 @@ export interface Session {
 
 const PROFILE_CACHE_KEY = "caixa-local-profile";
 
-function cacheProfile(profile: Profile | null) {
+export function cacheProfile(profile: Profile | null) {
   if (typeof window === "undefined") return;
   if (profile) window.localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
   else window.localStorage.removeItem(PROFILE_CACHE_KEY);
@@ -42,13 +44,20 @@ async function fetchProfile(user: User): Promise<Profile> {
   const client = requireSupabase();
   const { data, error } = await client
     .from("profiles")
-    .select("id, email, name, role")
+    .select("id, email, name, role, profile_initial, profile_color")
     .eq("id", user.id)
     .single();
 
   if (error) throw error;
 
-  const profile = data as Profile;
+  const profile = {
+    id: data.id,
+    email: data.email,
+    name: data.name,
+    role: data.role,
+    profileInitial: data.profile_initial,
+    profileColor: data.profile_color,
+  } as Profile;
   cacheProfile(profile);
   return profile;
 }

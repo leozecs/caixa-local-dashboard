@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, AlertTriangle, Bell, Info } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +16,9 @@ export const Route = createFileRoute("/_app/alertas")({
 
 function AlertasPage() {
   const { session } = useSession();
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>(() =>
+    readDismissedAlertIds(),
+  );
   const { data: store } = useQuery({
     queryKey: ["current-store", session?.profile.id],
     queryFn: () => getCurrentStore(session!.profile),
@@ -26,6 +30,17 @@ function AlertasPage() {
     queryFn: () => listStoreOperationalAlerts(store!.id),
     enabled: Boolean(store?.id && planHasAlerts(store.plan)),
   });
+  const visibleAlerts = useMemo(
+    () => alerts.filter((alert) => !dismissedAlertIds.includes(alert.id)),
+    [alerts, dismissedAlertIds],
+  );
+
+  useEffect(() => {
+    if (!alerts.length) return;
+    const ids = alerts.map((alert) => alert.id);
+    writeDismissedAlertIds(ids);
+    setDismissedAlertIds(ids);
+  }, [alerts]);
 
   if (!store)
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
@@ -65,7 +80,7 @@ function AlertasPage() {
         <CardContent className="p-0 divide-y divide-border">
           {isLoading ? (
             <div className="p-6 text-sm text-muted-foreground">Carregando alertas...</div>
-          ) : alerts.length === 0 ? (
+          ) : visibleAlerts.length === 0 ? (
             <div className="p-6 flex items-start gap-3">
               <div className="h-9 w-9 rounded-md bg-muted grid place-items-center text-info">
                 <Info className="h-4 w-4" />
@@ -78,7 +93,7 @@ function AlertasPage() {
               </div>
             </div>
           ) : (
-            alerts.map((alert) => {
+            visibleAlerts.map((alert) => {
               const critical = alert.severity === "critico";
               const Icon = critical ? AlertCircle : AlertTriangle;
               return (
@@ -116,4 +131,21 @@ function AlertasPage() {
       </Card>
     </div>
   );
+}
+
+const DISMISSED_ALERTS_KEY = "caixa-local-dismissed-alerts";
+
+function readDismissedAlertIds() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_ALERTS_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissedAlertIds(ids: string[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(ids));
 }

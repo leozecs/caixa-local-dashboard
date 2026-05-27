@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { isSameMonth, parseISO, startOfMonth } from "date-fns";
+import { format, isSameMonth, parseISO, startOfMonth } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -17,6 +18,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSession } from "@/lib/auth";
 import {
   formatBRL,
@@ -37,7 +45,17 @@ function MetasPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
   const [formGoals, setFormGoals] = useState<Goals>({ revenue: 0, margin: 0, maxExpenses: 0 });
-  const now = startOfMonth(new Date());
+  const baseDate = useMemo(() => new Date(), []);
+  const months = useMemo(
+    () =>
+      Array.from({ length: 12 }).map((_, index) => {
+        const date = startOfMonth(new Date(baseDate.getFullYear(), baseDate.getMonth() - index, 1));
+        return { value: date.toISOString(), label: formatMonthYear(date) };
+      }),
+    [baseDate],
+  );
+  const [selectedMonth, setSelectedMonth] = useState(months[0].value);
+  const now = parseISO(selectedMonth);
 
   const { data: store } = useQuery({
     queryKey: ["current-store", session?.profile.id],
@@ -92,6 +110,20 @@ function MetasPage() {
       <PageHeader
         title="Metas do mes"
         description="Comece vazio: defina as metas que fazem sentido para a rotina da sua loja."
+        actions={
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="h-8 w-[190px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {months.map((month) => (
+                <SelectItem key={month.value} value={month.value}>
+                  {month.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -189,6 +221,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </div>
   );
+}
+
+function formatMonthYear(date: Date) {
+  return format(date, "MMMM/yyyy", { locale: ptBR });
 }
 
 function GoalCard({

@@ -1,8 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { Filter, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import {
+  ExternalLink,
+  Filter,
+  Paperclip,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -42,12 +51,17 @@ import {
   DESPESA_CATEGORIAS,
   RECEITA_CATEGORIAS,
   deleteEntry,
+  deleteEntryAttachment,
   formatBRL,
   formatBRLPrecise,
   getCurrentStore,
+  listEntryAttachments,
   listEntries,
+  openEntryAttachment,
   saveEntry,
+  uploadEntryAttachment,
   type Entry,
+  type EntryAttachment,
   type EntryType,
   type PaymentMethod,
 } from "@/lib/data";
@@ -69,6 +83,7 @@ function LancamentosPage() {
   const [creatingType, setCreatingType] = useState<EntryType>("receita");
   const [editing, setEditing] = useState<Entry | null>(null);
   const [deleting, setDeleting] = useState<Entry | null>(null);
+  const [attachmentEntry, setAttachmentEntry] = useState<Entry | null>(null);
 
   const { data: store } = useQuery({
     queryKey: ["current-store", session?.profile.id],
@@ -202,6 +217,7 @@ function LancamentosPage() {
             setModalOpen(true);
           }}
           onDelete={setDeleting}
+          onAttachments={setAttachmentEntry}
         />
         <EntriesTable
           title="Despesas"
@@ -215,6 +231,7 @@ function LancamentosPage() {
             setModalOpen(true);
           }}
           onDelete={setDeleting}
+          onAttachments={setAttachmentEntry}
         />
       </div>
 
@@ -250,6 +267,11 @@ function LancamentosPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AttachmentsDialog
+        entry={attachmentEntry}
+        onOpenChange={(open) => !open && setAttachmentEntry(null)}
+      />
     </div>
   );
 }
@@ -262,6 +284,7 @@ function EntriesTable({
   onAdd,
   onEdit,
   onDelete,
+  onAttachments,
 }: {
   title: string;
   type: EntryType;
@@ -270,6 +293,7 @@ function EntriesTable({
   onAdd: () => void;
   onEdit: (entry: Entry) => void;
   onDelete: (entry: Entry) => void;
+  onAttachments: (entry: Entry) => void;
 }) {
   return (
     <Card className="shadow-none">
@@ -324,6 +348,15 @@ function EntriesTable({
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => onAttachments(entry)}
+                          aria-label="Comprovantes"
+                        >
+                          <Paperclip className="h-3.5 w-3.5" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -542,6 +575,133 @@ function EntryModal({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function AttachmentsDialog({
+  entry,
+  onOpenChange,
+}: {
+  entry: Entry | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { data: attachments = [], isLoading } = useQuery({
+    queryKey: ["entry-attachments", entry?.id],
+    queryFn: () => listEntryAttachments(entry!.id),
+    enabled: Boolean(entry?.id),
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) =>
+      uploadEntryAttachment({ storeId: entry!.storeId, entryId: entry!.id, file }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["entry-attachments", entry?.id] });
+      toast.success("Comprovante anexado.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao anexar comprovante."),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteEntryAttachment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["entry-attachments", entry?.id] });
+      toast.success("Comprovante removido.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao remover comprovante."),
+  });
+
+  return (
+    <Dialog open={Boolean(entry)} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Comprovantes</DialogTitle>
+          <DialogDescription>
+            Anexe recibos, notas ou comprovantes relacionados a este lancamento.
+          </DialogDescription>
+        </DialogHeader>
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          accept="image/*,.pdf"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) uploadMutation.mutate(file);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          className="gap-2"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadMutation.isPending}
+        >
+          <Upload className="h-4 w-4" />
+          {uploadMutation.isPending ? "Enviando..." : "Anexar comprovante"}
+        </Button>
+        <div className="space-y-2">
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground">Carregando comprovantes...</div>
+          ) : attachments.length ? (
+            attachments.map((attachment) => (
+              <AttachmentRow
+                key={attachment.id}
+                attachment={attachment}
+                deleting={deleteMutation.isPending}
+                onOpen={() => openEntryAttachment(attachment)}
+                onDelete={() => deleteMutation.mutate(attachment)}
+              />
+            ))
+          ) : (
+            <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+              Nenhum comprovante anexado.
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AttachmentRow({
+  attachment,
+  deleting,
+  onOpen,
+  onDelete,
+}: {
+  attachment: EntryAttachment;
+  deleting: boolean;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2">
+      <Paperclip className="h-4 w-4 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{attachment.fileName}</div>
+        <div className="text-xs text-muted-foreground">
+          {(attachment.fileSize / 1024).toFixed(1)} KB
+        </div>
+      </div>
+      <Button variant="ghost" size="icon" onClick={onOpen} aria-label="Abrir comprovante">
+        <ExternalLink className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="text-destructive hover:text-destructive"
+        disabled={deleting}
+        onClick={onDelete}
+        aria-label="Remover comprovante"
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </div>
   );
 }
 

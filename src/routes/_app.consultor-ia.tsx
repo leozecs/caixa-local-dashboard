@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO, startOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Bot, RefreshCcw, Send, UserRound } from "lucide-react";
+import { Bot, RefreshCcw, Send } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,10 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { useSession } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import {
-  formatBRL,
   getCurrentStore,
   getGoals,
-  getMonthlyOwnerNote,
+  getPlanCapabilities,
   listAiInsights,
   listEntries,
   type Entry,
@@ -68,12 +67,6 @@ function ConsultorIaPage() {
     enabled: Boolean(store?.id),
   });
 
-  const { data: ownerNote, isLoading: loadingOwnerNote } = useQuery({
-    queryKey: ["monthly-owner-note", store?.id, monthStart.toISOString()],
-    queryFn: () => getMonthlyOwnerNote(store!.id, monthStart),
-    enabled: Boolean(store?.id),
-  });
-
   const mutation = useMutation({
     mutationFn: async () => {
       if (!store || !goals) throw new Error("Dados da loja ainda nao carregados.");
@@ -103,7 +96,7 @@ function ConsultorIaPage() {
       toast.error(error instanceof Error ? error.message : "Erro ao gerar insight."),
   });
 
-  if (loadingStore || loadingEntries || loadingInsights || loadingOwnerNote) {
+  if (loadingStore || loadingEntries || loadingInsights) {
     return <div className="text-sm text-muted-foreground">Carregando consultor IA...</div>;
   }
 
@@ -111,8 +104,25 @@ function ConsultorIaPage() {
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
   }
 
+  const capabilities = getPlanCapabilities(store.plan);
+  if (!capabilities.aiConsultant) {
+    return (
+      <div className="space-y-5">
+        <PageHeader title="Meu Consultor IA" description="Disponivel no plano Gestao Local." />
+        <Card className="shadow-none">
+          <CardContent className="p-6">
+            <div className="text-sm font-medium">Seu plano atual nao inclui o Consultor IA.</div>
+            <div className="mt-1 text-sm text-muted-foreground">
+              Esse recurso faz parte do Gestao Local, junto com relatorio interpretado, sugestao
+              mensal personalizada e pontos de atencao.
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const latest = insights[0];
-  const metrics = goals ? buildMetrics({ store, goals, entries, monthStart, previousMonth }) : null;
   const nextAllowedAt = latest
     ? new Date(parseISO(latest.createdAt).getTime() + 7 * 24 * 60 * 60 * 1000)
     : null;
@@ -122,7 +132,7 @@ function ConsultorIaPage() {
     <div className="space-y-5">
       <PageHeader
         title="Meu Consultor IA"
-        description="Conversa semanal sobre os numeros da loja, com sua sugestao mensal quando disponivel."
+        description="Analise dos numeros da loja com proximos passos praticos."
       />
 
       <Card className="shadow-none overflow-hidden">
@@ -137,7 +147,7 @@ function ConsultorIaPage() {
               )}
               {weeklyLocked && nextAllowedAt && (
                 <Badge variant="secondary">
-                  Proximo em {format(nextAllowedAt, "dd/MM", { locale: ptBR })}
+                  Proxima analise em {format(nextAllowedAt, "dd/MM", { locale: ptBR })}
                 </Badge>
               )}
             </div>
@@ -148,24 +158,14 @@ function ConsultorIaPage() {
             align="left"
             icon={Bot}
             title="Caixa Local"
-            text="Clique em gerar insight para receber uma leitura grande da semana sobre faturamento, despesas, margem e proximos passos."
+            text="Clique em gerar analise para receber uma leitura objetiva sobre vendas, despesas, margem e proximos passos."
           />
-
-          {ownerNote?.note && (
-            <ChatBubble
-              align="left"
-              icon={UserRound}
-              title="Sugestao mensal do Leo"
-              text={ownerNote.note}
-              meta={format(parseISO(ownerNote.updatedAt), "dd/MM/yyyy", { locale: ptBR })}
-            />
-          )}
 
           {latest ? (
             <ChatBubble
               align="left"
               icon={Bot}
-              title="Insight semanal da IA"
+              title="Analise da IA"
               text={[
                 latest.summary,
                 `Maior oportunidade: ${latest.opportunity}`,
@@ -178,8 +178,8 @@ function ConsultorIaPage() {
             <ChatBubble
               align="left"
               icon={Bot}
-              title="Insight semanal da IA"
-              text="Ainda nao existe insight gerado para esta loja."
+              title="Analise da IA"
+              text="Ainda nao existe analise gerada para esta loja."
             />
           )}
 
@@ -187,8 +187,8 @@ function ConsultorIaPage() {
             <div className="flex max-w-xl items-center gap-2 rounded-md border border-border bg-background p-2">
               <div className="px-2 text-sm text-muted-foreground">
                 {weeklyLocked && nextAllowedAt
-                  ? `Novo insight disponivel em ${format(nextAllowedAt, "dd/MM/yyyy HH:mm", { locale: ptBR })}.`
-                  : "Gerar insight da minha loja"}
+                  ? `Nova analise disponivel em ${format(nextAllowedAt, "dd/MM/yyyy HH:mm", { locale: ptBR })}.`
+                  : "Gerar analise da minha loja"}
               </div>
               <Button
                 size="sm"
@@ -207,19 +207,6 @@ function ConsultorIaPage() {
           </div>
         </CardContent>
       </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        {metrics ? (
-          <>
-            <MetricCard label="Faturamento" value={formatBRL(metrics.current.revenue)} />
-            <MetricCard label="Despesas" value={formatBRL(metrics.current.expenses)} />
-            <MetricCard label="Lucro" value={formatBRL(metrics.current.profit)} />
-            <MetricCard label="Margem" value={`${metrics.current.margin.toFixed(1)}%`} />
-          </>
-        ) : (
-          <div className="text-sm text-muted-foreground">Metas ainda nao carregadas.</div>
-        )}
-      </div>
     </div>
   );
 }
@@ -344,16 +331,5 @@ function ChatBubble({
         <p className="mt-2 whitespace-pre-line text-sm leading-relaxed opacity-90">{text}</p>
       </div>
     </div>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="shadow-none">
-      <CardContent className="p-4">
-        <div className="text-xs uppercase text-muted-foreground">{label}</div>
-        <div className="mt-2 text-xl font-semibold tabular-nums">{value}</div>
-      </CardContent>
-    </Card>
   );
 }
