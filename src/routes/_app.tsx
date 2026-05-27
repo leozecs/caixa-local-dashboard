@@ -150,11 +150,13 @@ function AppShell() {
 
   if (loading || !session) return null;
 
+  const shellName = inAdmin ? "Admin Caixa Local" : currentStore?.name || "Loja";
+
   return (
     <div className="min-h-screen flex bg-background text-foreground">
       {/* Sidebar desktop */}
       <aside className="hidden lg:flex w-60 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
-        <BrandBlock />
+        <BrandBlock title={shellName} />
         <SidebarNav items={navItems} pathname={pathname} />
         <div className="mt-auto p-3 border-t border-sidebar-border">
           <div className="text-xs text-sidebar-foreground/60">Logado como</div>
@@ -169,7 +171,7 @@ function AppShell() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <aside className="relative w-64 bg-sidebar text-sidebar-foreground flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
-              <BrandBlock compact />
+              <BrandBlock title={shellName} compact />
               <button
                 onClick={() => setMobileOpen(false)}
                 className="p-1 rounded-md hover:bg-sidebar-accent"
@@ -206,8 +208,8 @@ function AppShell() {
                   <div
                     className="h-7 w-7 rounded-full grid place-items-center text-xs font-semibold"
                     style={{
-                      backgroundColor: session.profile.profileColor || "#111827",
-                      color: readableTextColor(session.profile.profileColor || "#111827"),
+                      backgroundColor: "var(--sidebar)",
+                      color: "var(--sidebar-foreground)",
                     }}
                   >
                     {profileInitial(session.profile.profileInitial, session.name)}
@@ -281,7 +283,7 @@ function AppShell() {
   );
 }
 
-function BrandBlock({ compact = false }: { compact?: boolean }) {
+function BrandBlock({ title, compact = false }: { title: string; compact?: boolean }) {
   return (
     <div
       className={cn(
@@ -293,8 +295,8 @@ function BrandBlock({ compact = false }: { compact?: boolean }) {
         <Wallet className="h-4 w-4" />
       </div>
       <div>
-        <div className="text-sm font-semibold leading-tight">Caixa Local</div>
-        <div className="text-[10px] text-sidebar-foreground/60 leading-tight">Vinhedo/SP</div>
+        <div className="text-sm font-semibold leading-tight truncate max-w-[168px]">{title}</div>
+        <div className="text-[10px] text-sidebar-foreground/60 leading-tight">Caixa Local</div>
       </div>
     </div>
   );
@@ -360,12 +362,12 @@ function StoreSwitcher({ inAdmin, store }: { inAdmin: boolean; store: Store | nu
       </div>
       <div className="min-w-0">
         <div className="text-sm font-medium leading-tight truncate">
-          {inAdmin ? "Caixa Local · Admin" : store?.name || "Loja"}
+          {inAdmin ? "Admin" : store?.name || "Loja"}
         </div>
         <div className="flex items-center gap-1.5 mt-0.5">
           <StatusDot variant={statusLabel.variant} />
           <span className="text-[11px] text-muted-foreground leading-none">
-            {statusLabel.label}
+            Caixa Local · {statusLabel.label}
           </span>
         </div>
       </div>
@@ -385,16 +387,6 @@ function StatusDot({ variant }: { variant: "success" | "warning" | "info" | "dan
 
 function profileInitial(savedInitial: string | null | undefined, name: string) {
   return (savedInitial || name.trim().slice(0, 1) || "C").slice(0, 1).toUpperCase();
-}
-
-function readableTextColor(background: string) {
-  const hex = background.replace("#", "");
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return "#ffffff";
-  const red = parseInt(hex.slice(0, 2), 16);
-  const green = parseInt(hex.slice(2, 4), 16);
-  const blue = parseInt(hex.slice(4, 6), 16);
-  const brightness = (red * 299 + green * 587 + blue * 114) / 1000;
-  return brightness > 180 ? "#111827" : "#ffffff";
 }
 
 function readDismissedAlertIds() {

@@ -887,6 +887,21 @@ export async function updateStoreMemberRole(input: {
   return ((payload.members || []) as StoreMemberDbRow[]).map(toStoreMember);
 }
 
+export async function deleteStoreMember(input: { storeId: string; memberId: string }) {
+  const token = await getSessionToken();
+  const response = await fetch(`/api/store-members?storeId=${encodeURIComponent(input.storeId)}`, {
+    method: "DELETE",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ memberId: input.memberId }),
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload?.message || "Erro ao excluir usuario.");
+  return ((payload.members || []) as StoreMemberDbRow[]).map(toStoreMember);
+}
+
 export async function deleteStore(id: string) {
   const client = requireSupabase();
   const { error } = await client.from("stores").delete().eq("id", id);

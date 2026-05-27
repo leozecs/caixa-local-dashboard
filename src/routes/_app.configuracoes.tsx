@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Save, UserPlus } from "lucide-react";
+import { Save, Trash2, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { PlansCard } from "@/components/admin/plans-card";
 import { cacheProfile, useSession } from "@/lib/auth";
 import {
   createStoreMember,
+  deleteStoreMember,
   getCurrentStore,
   getPlanCapabilities,
   listStoreMembers,
@@ -80,6 +81,15 @@ function ConfigPage() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao atualizar permissao."),
+  });
+  const deleteMemberMutation = useMutation({
+    mutationFn: (memberId: string) => deleteStoreMember({ storeId: store!.id, memberId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["store-members", store?.id] });
+      toast.success("Atendente excluido.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao excluir atendente."),
   });
   const profileMutation = useMutation({
     mutationFn: (payload: FormData) =>
@@ -242,6 +252,7 @@ function ConfigPage() {
                     <th>Usuario</th>
                     <th>E-mail</th>
                     <th className="w-[170px]">Role</th>
+                    <th className="w-[80px] text-right">Acao</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -269,11 +280,27 @@ function ConfigPage() {
                           </SelectContent>
                         </Select>
                       </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          disabled={member.role !== "atendente" || deleteMemberMutation.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Excluir o atendente "${member.name}"?`)) {
+                              deleteMemberMutation.mutate(member.id);
+                            }
+                          }}
+                          aria-label="Excluir atendente"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                   {!team?.members.length && (
                     <tr>
-                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={3}>
+                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={4}>
                         Nenhum usuario carregado.
                       </td>
                     </tr>

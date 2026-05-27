@@ -579,6 +579,53 @@ async function handleStoreMembers(request: Request, env: unknown) {
     return jsonResponse({ members: await listStoreMembers(env, storeId) });
   }
 
+  if (request.method === "DELETE") {
+    const body = (await request.json()) as { memberId?: string };
+    const memberId = body.memberId || "";
+    if (!memberId) return jsonResponse({ message: "Membro obrigatorio." }, { status: 400 });
+
+    const members = await listStoreMembers(env, storeId);
+    const current = members.find((member) => member.id === memberId);
+    if (!current) return jsonResponse({ message: "Membro nao encontrado." }, { status: 404 });
+    if (current.role !== "atendente") {
+      return jsonResponse(
+        { message: "Apenas usuarios atendentes podem ser excluidos por aqui." },
+        { status: 400 },
+      );
+    }
+
+    const userId = current.profiles?.id;
+    if (userId) {
+      const response = await supabaseAdminFetch(
+        env,
+        `/auth/v1/admin/users/${encodeURIComponent(userId)}`,
+        { method: "DELETE" },
+      );
+
+      if (!response.ok) {
+        return jsonResponse(
+          { message: await readErrorMessage(response, "Nao foi possivel excluir usuario.") },
+          { status: response.status },
+        );
+      }
+    } else {
+      const response = await supabaseAdminFetch(
+        env,
+        `/rest/v1/store_members?id=eq.${encodeURIComponent(memberId)}&store_id=eq.${encodeURIComponent(storeId)}`,
+        { method: "DELETE", prefer: "return=minimal" },
+      );
+
+      if (!response.ok) {
+        return jsonResponse(
+          { message: await readErrorMessage(response, "Nao foi possivel remover vinculo.") },
+          { status: response.status },
+        );
+      }
+    }
+
+    return jsonResponse({ members: await listStoreMembers(env, storeId) });
+  }
+
   return jsonResponse({ message: "Metodo nao permitido." }, { status: 405 });
 }
 
