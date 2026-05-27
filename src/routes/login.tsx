@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { signIn } from "@/lib/auth";
 
 export const Route = createFileRoute("/login")({
-  head: () => ({ meta: [{ title: "Entrar — Caixa Local" }] }),
+  head: () => ({ meta: [{ title: "Entrar | Caixa Local" }] }),
   component: LoginPage,
 });
 
@@ -44,15 +44,15 @@ function LoginPage() {
         </div>
         <div className="space-y-3 max-w-md">
           <h2 className="text-2xl font-semibold leading-tight">
-            Seu caixa do dia, suas metas do mês — em um só lugar.
+            Retome o controle do seu dinheiro e enxergue seu negócio com clareza.
           </h2>
           <p className="text-sm text-sidebar-foreground/70">
-            Feito para padarias, cafeterias, barbearias, pizzarias e mercados de bairro de Vinhedo e
-            região.
+            Feito para quem quer sair do improviso, acompanhar cada venda e tomar decisões melhores
+            todos os dias.
           </p>
         </div>
         <p className="text-xs text-sidebar-foreground/50">
-          © {new Date().getFullYear()} Caixa Local · Vinhedo/SP
+          © {new Date().getFullYear()} Caixa Local
         </p>
       </div>
 
@@ -68,7 +68,8 @@ function LoginPage() {
 
           <h1 className="text-xl font-semibold tracking-tight">Caixa Local</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Financeiro simples para comércio local.
+            Feito para você que quer retomar o controle da sua vida financeira, organizar o caixa e
+            crescer com mais segurança.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
