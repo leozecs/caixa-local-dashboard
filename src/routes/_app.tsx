@@ -158,7 +158,7 @@ function AppShell() {
     <div className="min-h-screen flex bg-background text-foreground" style={sidebarTheme}>
       {/* Sidebar desktop */}
       <aside className="hidden lg:flex w-60 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
-        <BrandBlock title={shellName} />
+        <BrandBlock title={shellName} logoUrl={currentStore?.logoUrl} />
         <SidebarNav items={navItems} pathname={pathname} />
         <div className="mt-auto p-3 border-t border-sidebar-border">
           <div className="text-xs text-sidebar-foreground/60">Logado como</div>
@@ -173,7 +173,7 @@ function AppShell() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <aside className="relative w-64 bg-sidebar text-sidebar-foreground flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
-              <BrandBlock title={shellName} compact />
+              <BrandBlock title={shellName} logoUrl={currentStore?.logoUrl} compact />
               <button
                 onClick={() => setMobileOpen(false)}
                 className="p-1 rounded-md hover:bg-sidebar-accent"
@@ -285,7 +285,15 @@ function AppShell() {
   );
 }
 
-function BrandBlock({ title, compact = false }: { title: string; compact?: boolean }) {
+function BrandBlock({
+  title,
+  logoUrl,
+  compact = false,
+}: {
+  title: string;
+  logoUrl?: string | null;
+  compact?: boolean;
+}) {
   return (
     <div
       className={cn(
@@ -293,8 +301,12 @@ function BrandBlock({ title, compact = false }: { title: string; compact?: boole
         compact ? "py-2" : "py-4 border-b border-sidebar-border",
       )}
     >
-      <div className="h-8 w-8 rounded-md bg-sidebar-primary text-sidebar-primary-foreground grid place-items-center">
-        <Wallet className="h-4 w-4" />
+      <div className="h-8 w-8 rounded-md bg-sidebar-primary text-sidebar-primary-foreground grid place-items-center overflow-hidden">
+        {logoUrl ? (
+          <img src={logoUrl} alt={`Logo ${title}`} className="h-full w-full object-contain" />
+        ) : (
+          <Wallet className="h-4 w-4" />
+        )}
       </div>
       <div>
         <div className="text-sm font-semibold leading-tight truncate max-w-[168px]">{title}</div>
@@ -360,7 +372,17 @@ function StoreSwitcher({ inAdmin, store }: { inAdmin: boolean; store: Store | nu
   return (
     <div className="flex items-center gap-2.5 min-w-0">
       <div className="h-8 w-8 rounded-md bg-muted grid place-items-center text-foreground">
-        {inAdmin ? <Shield className="h-4 w-4" /> : <StoreIcon className="h-4 w-4" />}
+        {!inAdmin && store?.logoUrl ? (
+          <img
+            src={store.logoUrl}
+            alt={`Logo ${store.name}`}
+            className="h-full w-full rounded-md object-contain"
+          />
+        ) : inAdmin ? (
+          <Shield className="h-4 w-4" />
+        ) : (
+          <StoreIcon className="h-4 w-4" />
+        )}
       </div>
       <div className="min-w-0">
         <div className="text-sm font-medium leading-tight truncate">

@@ -44,6 +44,8 @@ export interface Store {
   cnpj?: string | null;
   dailyClosingWhatsappEnabled?: boolean;
   memberRole?: StoreMemberRole;
+  logoPath?: string | null;
+  logoUrl?: string | null;
 }
 
 export interface Entry {
@@ -196,6 +198,7 @@ type StoreRow = {
   city: string;
   cnpj: string | null;
   daily_closing_whatsapp_enabled?: boolean | null;
+  logo_path?: string | null;
   created_at: string;
 };
 
@@ -805,6 +808,7 @@ export async function updateStore(id: string, input: Partial<Store>) {
   if (input.dailyClosingWhatsappEnabled !== undefined) {
     payload.daily_closing_whatsapp_enabled = input.dailyClosingWhatsappEnabled;
   }
+  if (input.logoPath !== undefined) payload.logo_path = input.logoPath;
 
   const { data, error } = await client
     .from("stores")
@@ -815,6 +819,38 @@ export async function updateStore(id: string, input: Partial<Store>) {
 
   if (error) throw error;
   return hydrateStore(data as StoreRow);
+}
+
+export async function uploadStoreLogo(input: {
+  storeId: string;
+  currentLogoPath?: string | null;
+  file: File;
+}) {
+  const client = requireSupabase();
+  if (!input.file.type.startsWith("image/")) {
+    throw new Error("Envie uma imagem para usar como logo.");
+  }
+  if (input.file.size > 2 * 1024 * 1024) {
+    throw new Error("A logo precisa ter ate 2 MB.");
+  }
+
+  const extension = input.file.name.split(".").pop()?.toLowerCase().replace(/[^\w]+/g, "") || "png";
+  const filePath = `${input.storeId}/logo-${crypto.randomUUID()}.${extension}`;
+  const { error: uploadError } = await client.storage
+    .from("store-logos")
+    .upload(filePath, input.file, {
+      contentType: input.file.type || "image/png",
+      upsert: false,
+    });
+
+  if (uploadError) throw uploadError;
+
+  const store = await updateStore(input.storeId, { logoPath: filePath });
+  if (input.currentLogoPath && input.currentLogoPath !== filePath) {
+    await client.storage.from("store-logos").remove([input.currentLogoPath]);
+  }
+
+  return store;
 }
 
 async function getSessionToken() {
@@ -1456,6 +1492,7 @@ async function hydrateStore(row: StoreRow): Promise<Store> {
   const entries = await listEntries(row.id);
   const goals = await getGoals(row.id).catch(() => undefined);
   const monthRevenue = sumEntries(entries, "receita");
+  const logoUrl = row.logo_path ? await getStoreLogoUrl(row.logo_path) : null;
 
   return {
     id: row.id,
@@ -1470,7 +1507,16 @@ async function hydrateStore(row: StoreRow): Promise<Store> {
     city: row.city,
     cnpj: row.cnpj,
     dailyClosingWhatsappEnabled: Boolean(row.daily_closing_whatsapp_enabled),
+    logoPath: row.logo_path || null,
+    logoUrl,
   };
+}
+
+async function getStoreLogoUrl(path: string) {
+  const client = requireSupabase();
+  const { data, error } = await client.storage.from("store-logos").createSignedUrl(path, 3600);
+  if (error) return null;
+  return data.signedUrl;
 }
 
 /*

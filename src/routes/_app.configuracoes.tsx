@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Save, Trash2, UserPlus } from "lucide-react";
+import { ImageUp, Save, Trash2, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
   updateStoreMemberRole,
   updateProfileAppearance,
   updateStore,
+  uploadStoreLogo,
   type StoreMemberRole,
 } from "@/lib/data";
 
@@ -116,6 +117,26 @@ function ConfigPage() {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao atualizar preferencia."),
   });
+  const logoMutation = useMutation({
+    mutationFn: (payload: FormData) => {
+      const file = payload.get("logo");
+      if (!(file instanceof File) || file.size === 0) {
+        throw new Error("Escolha uma imagem para enviar.");
+      }
+      return uploadStoreLogo({
+        storeId: store!.id,
+        currentLogoPath: store!.logoPath,
+        file,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["current-store"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-stores"] });
+      toast.success("Logo da loja atualizada.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar logo."),
+  });
 
   const mutation = useMutation({
     mutationFn: (payload: FormData) =>
@@ -180,6 +201,40 @@ function ConfigPage() {
                 <Save className="h-4 w-4" /> {mutation.isPending ? "Salvando..." : "Salvar"}
               </Button>
             </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardHeader>
+          <CardTitle className="text-sm font-semibold">Logo da loja</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="flex flex-col gap-4 md:flex-row md:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              logoMutation.mutate(new FormData(event.currentTarget));
+            }}
+          >
+            <div className="h-16 w-16 shrink-0 rounded-md border border-border bg-muted grid place-items-center overflow-hidden">
+              {store.logoUrl ? (
+                <img
+                  src={store.logoUrl}
+                  alt={`Logo ${store.name}`}
+                  className="h-full w-full object-contain"
+                />
+              ) : (
+                <ImageUp className="h-5 w-5 text-muted-foreground" />
+              )}
+            </div>
+            <Field label="Imagem da logo">
+              <Input name="logo" type="file" accept="image/*" required />
+            </Field>
+            <Button type="submit" size="sm" className="gap-2" disabled={logoMutation.isPending}>
+              <ImageUp className="h-4 w-4" />
+              {logoMutation.isPending ? "Enviando..." : "Salvar logo"}
+            </Button>
           </form>
         </CardContent>
       </Card>
