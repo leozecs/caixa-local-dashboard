@@ -436,6 +436,19 @@ async function handleStoreMembers(request: Request, env: unknown) {
   const storeId = url.searchParams.get("storeId") || "";
   if (!storeId) return jsonResponse({ message: "Loja obrigatoria." }, { status: 400 });
 
+  if (request.method === "GET") {
+    const user = await getSupabaseUser(request, env);
+    if (!user) return jsonResponse({ message: "Sessao invalida." }, { status: 401 });
+    if (!(await canAccessStore(env, user.id, storeId))) {
+      return jsonResponse({ message: "Voce nao tem acesso a esta loja." }, { status: 403 });
+    }
+    const store = await getStoreForTeam(env, storeId);
+    return jsonResponse({
+      members: await listStoreMembers(env, storeId),
+      maxUsers: planMaxUsers(store.plan),
+    });
+  }
+
   try {
     await requireStoreManager(request, env, storeId);
   } catch (error) {
@@ -443,14 +456,6 @@ async function handleStoreMembers(request: Request, env: unknown) {
       return jsonResponse({ message: await error.text() }, { status: error.status });
     }
     throw error;
-  }
-
-  if (request.method === "GET") {
-    const store = await getStoreForTeam(env, storeId);
-    return jsonResponse({
-      members: await listStoreMembers(env, storeId),
-      maxUsers: planMaxUsers(store.plan),
-    });
   }
 
   if (request.method === "POST") {

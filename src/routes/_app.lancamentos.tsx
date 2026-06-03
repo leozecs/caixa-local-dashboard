@@ -106,7 +106,7 @@ function LancamentosPage() {
   const { data: team } = useQuery({
     queryKey: ["store-members", store?.id],
     queryFn: () => listStoreMembers(store!.id),
-    enabled: Boolean(store?.id && store?.memberRole !== "atendente"),
+    enabled: Boolean(store?.id),
   });
 
   const saveMutation = useMutation({
@@ -515,11 +515,11 @@ function EntryModal({
     String(entry?.commissionPercent ?? defaultCommissionPercent),
   );
   const [isRecurring, setIsRecurring] = useState(Boolean(entry?.isRecurring));
-  const findSalesperson = (name: string) =>
-    salespeople.find((member) => member.name.toLowerCase() === name.trim().toLowerCase());
-  const updateSalespersonName = (name: string) => {
-    setSalespersonName(name);
-    const matched = findSalesperson(name);
+  const findSalesperson = (value: string) =>
+    salespeople.find((member) => member.id === value || member.name === value);
+  const updateSalesperson = (memberId: string) => {
+    const matched = findSalesperson(memberId);
+    setSalespersonName(matched?.name || "");
     if (matched) setCommissionPercent(String(matched.commissionPercent));
   };
 
@@ -532,8 +532,8 @@ function EntryModal({
     setDescription(entry?.description || "");
     setPaymentMethod(entry?.paymentMethod || "Pix");
     setAmount(entry?.amount ? String(entry.amount) : "");
-    setSalespersonName(entry?.salespersonName || "");
     const matched = entry?.salespersonName ? findSalesperson(entry.salespersonName) : null;
+    setSalespersonName(matched?.name || "");
     setCommissionPercent(
       String(entry?.commissionPercent ?? matched?.commissionPercent ?? defaultCommissionPercent),
     );
@@ -612,26 +612,35 @@ function EntryModal({
           {type === "receita" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="Responsavel pela venda">
-                <Input
-                  value={salespersonName}
-                  onChange={(event) => updateSalespersonName(event.target.value)}
-                  list="salespeople-options"
-                  placeholder="Nome do funcionario"
-                />
-                <datalist id="salespeople-options">
-                  {salespeople.map((member) => (
-                    <option key={member.id} value={member.name} />
-                  ))}
-                </datalist>
+                <Select
+                  value={findSalesperson(salespersonName)?.id || ""}
+                  onValueChange={updateSalesperson}
+                  disabled={!salespeople.length}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        salespeople.length
+                          ? "Selecione o atendente"
+                          : "Cadastre um atendente em Configuracoes"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {salespeople.map((member) => (
+                      <SelectItem key={member.id} value={member.id}>
+                        {member.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </Field>
               <Field label="Comissao (%)">
                 <Input
                   type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
                   value={commissionPercent}
-                  onChange={(event) => setCommissionPercent(event.target.value)}
+                  readOnly
+                  className="bg-muted"
                 />
               </Field>
             </div>
@@ -683,7 +692,10 @@ function EntryModal({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={pending || Number(amount) <= 0}>
+            <Button
+              type="submit"
+              disabled={pending || Number(amount) <= 0 || (type === "receita" && !salespersonName)}
+            >
               {pending ? "Salvando..." : "Salvar"}
             </Button>
           </DialogFooter>
