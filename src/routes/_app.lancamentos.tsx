@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import {
   ExternalLink,
@@ -149,11 +149,17 @@ function LancamentosPage() {
   }, [entries, filterCat, search]);
 
   const receitaCategories = useMemo(
-    () => storeCategories.filter((category) => category.type === "receita").map((category) => category.name),
+    () =>
+      storeCategories
+        .filter((category) => category.type === "receita")
+        .map((category) => category.name),
     [storeCategories],
   );
   const despesaCategories = useMemo(
-    () => storeCategories.filter((category) => category.type === "despesa").map((category) => category.name),
+    () =>
+      storeCategories
+        .filter((category) => category.type === "despesa")
+        .map((category) => category.name),
     [storeCategories],
   );
   const allCategories = useMemo(
@@ -515,8 +521,11 @@ function EntryModal({
     String(entry?.commissionPercent ?? defaultCommissionPercent),
   );
   const [isRecurring, setIsRecurring] = useState(Boolean(entry?.isRecurring));
-  const findSalesperson = (value: string) =>
-    attendants.find((attendant) => attendant.id === value || attendant.name === value);
+  const findSalesperson = useCallback(
+    (value: string) =>
+      attendants.find((attendant) => attendant.id === value || attendant.name === value),
+    [attendants],
+  );
   const updateSalesperson = (attendantId: string) => {
     const matched = findSalesperson(attendantId);
     setSalespersonName(matched?.name || "");
@@ -527,7 +536,9 @@ function EntryModal({
     if (!open) return;
     const nextType = entry?.type || defaultType;
     setType(nextType);
-    setCategory(entry?.category || (nextType === "receita" ? receitaCategories[0] : despesaCategories[0]));
+    setCategory(
+      entry?.category || (nextType === "receita" ? receitaCategories[0] : despesaCategories[0]),
+    );
     setDate(entry?.date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
     setDescription(entry?.description || "");
     setPaymentMethod(entry?.paymentMethod || "Pix");
@@ -538,7 +549,16 @@ function EntryModal({
       String(entry?.commissionPercent ?? matched?.commissionPercent ?? defaultCommissionPercent),
     );
     setIsRecurring(Boolean(entry?.isRecurring));
-  }, [entry, defaultType, defaultCommissionPercent, despesaCategories, receitaCategories, attendants, open]);
+  }, [
+    entry,
+    defaultType,
+    defaultCommissionPercent,
+    despesaCategories,
+    receitaCategories,
+    attendants,
+    findSalesperson,
+    open,
+  ]);
 
   const categories = type === "receita" ? receitaCategories : despesaCategories;
 
@@ -636,12 +656,7 @@ function EntryModal({
                 </Select>
               </Field>
               <Field label="Comissao (%)">
-                <Input
-                  type="number"
-                  value={commissionPercent}
-                  readOnly
-                  className="bg-muted"
-                />
+                <Input type="number" value={commissionPercent} readOnly className="bg-muted" />
               </Field>
             </div>
           )}

@@ -156,15 +156,6 @@ export interface AdminAiInsight {
   createdAt: string;
 }
 
-export interface MonthlyOwnerNote {
-  id: string;
-  storeId: string;
-  month: string;
-  note: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface StoreOperationalAlert {
   id: string;
   type: "margin" | "revenue_goal" | "expense_goal";
@@ -295,7 +286,10 @@ type StoreMemberDbRow = {
   id: string;
   role: StoreMemberRole;
   created_at: string;
-  profiles?: { id: string; email: string; name: string } | { id: string; email: string; name: string }[] | null;
+  profiles?:
+    | { id: string; email: string; name: string }
+    | { id: string; email: string; name: string }[]
+    | null;
 };
 
 type AiInsightDbRow = {
@@ -316,15 +310,6 @@ type AdminAiInsightDbRow = {
   risk: string;
   actions: string[];
   created_at: string;
-};
-
-type MonthlyOwnerNoteDbRow = {
-  id: string;
-  store_id: string;
-  month: string;
-  note: string;
-  created_at: string;
-  updated_at: string;
 };
 
 const DEFAULT_BILLING_MESSAGE =
@@ -597,17 +582,6 @@ function toAdminAiInsight(row: AdminAiInsightDbRow): AdminAiInsight {
   };
 }
 
-function toMonthlyOwnerNote(row: MonthlyOwnerNoteDbRow): MonthlyOwnerNote {
-  return {
-    id: row.id,
-    storeId: row.store_id,
-    month: row.month,
-    note: row.note,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
 function isMissingTableError(error: unknown) {
   return (
     typeof error === "object" &&
@@ -672,63 +646,6 @@ export async function listAdminAiInsights(scope = "portfolio"): Promise<AdminAiI
   return ((data || []) as AdminAiInsightDbRow[]).map(toAdminAiInsight);
 }
 
-export async function saveAiInsight(input: Omit<AiInsight, "id" | "createdAt">) {
-  const client = requireSupabase();
-  const { data, error } = await client
-    .from("ai_insights")
-    .insert({
-      store_id: input.storeId,
-      summary: input.summary,
-      opportunity: input.opportunity,
-      risk: input.risk,
-      actions: input.actions,
-    })
-    .select("id, store_id, summary, opportunity, risk, actions, created_at")
-    .single();
-
-  if (error) throw error;
-  return toAiInsight(data as AiInsightDbRow);
-}
-
-export async function getMonthlyOwnerNote(storeId: string, month: Date) {
-  const client = requireSupabase();
-  const monthKey = startOfMonth(month).toISOString().slice(0, 10);
-  const { data, error } = await client
-    .from("monthly_owner_notes")
-    .select("id, store_id, month, note, created_at, updated_at")
-    .eq("store_id", storeId)
-    .eq("month", monthKey)
-    .maybeSingle();
-
-  if (error) {
-    if (isMissingTableError(error)) return null;
-    throw error;
-  }
-
-  return data ? toMonthlyOwnerNote(data as MonthlyOwnerNoteDbRow) : null;
-}
-
-export async function saveMonthlyOwnerNote(input: { storeId: string; month: Date; note: string }) {
-  const client = requireSupabase();
-  const monthKey = startOfMonth(input.month).toISOString().slice(0, 10);
-  const { data, error } = await client
-    .from("monthly_owner_notes")
-    .upsert(
-      {
-        store_id: input.storeId,
-        month: monthKey,
-        note: input.note.trim(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "store_id,month" },
-    )
-    .select("id, store_id, month, note, created_at, updated_at")
-    .single();
-
-  if (error) throw error;
-  return toMonthlyOwnerNote(data as MonthlyOwnerNoteDbRow);
-}
-
 export async function saveSubscriptionPlan(input: {
   id?: string;
   name: string;
@@ -767,24 +684,6 @@ export async function deleteSubscriptionPlan(id: string) {
 async function getPlanAmount(planName: string) {
   const plans = await listSubscriptionPlans({ activeOnly: false });
   return plans.find((plan) => plan.name === planName)?.amount ?? 0;
-}
-
-export async function getProfile() {
-  const client = requireSupabase();
-  const { data, error } = await client
-    .from("profiles")
-    .select("id, email, name, role, profile_initial, profile_color")
-    .single();
-
-  if (error) throw error;
-  return {
-    id: data.id,
-    email: data.email,
-    name: data.name,
-    role: data.role,
-    profileInitial: data.profile_initial,
-    profileColor: data.profile_color,
-  } as Profile;
 }
 
 export async function updateProfileAppearance(input: {
@@ -978,6 +877,26 @@ export async function createStoreCategory(input: {
   return toStoreCategory(data as StoreCategoryDbRow);
 }
 
+export async function updateStoreCategory(input: { id: string; type: EntryType; name: string }) {
+  const client = requireSupabase();
+  const name = input.name.trim();
+  if (!name) throw new Error("Informe o nome da categoria.");
+
+  const { data, error } = await client
+    .from("store_categories")
+    .update({
+      type: input.type,
+      name,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.id)
+    .select("id, store_id, type, name, sort_order")
+    .single();
+
+  if (error) throw error;
+  return toStoreCategory(data as StoreCategoryDbRow);
+}
+
 export async function deleteStoreCategory(id: string) {
   const client = requireSupabase();
   const { error } = await client.from("store_categories").delete().eq("id", id);
@@ -1066,7 +985,12 @@ export async function uploadStoreLogo(input: {
     throw new Error("A logo precisa ter ate 2 MB.");
   }
 
-  const extension = input.file.name.split(".").pop()?.toLowerCase().replace(/[^\w]+/g, "") || "png";
+  const extension =
+    input.file.name
+      .split(".")
+      .pop()
+      ?.toLowerCase()
+      .replace(/[^\w]+/g, "") || "png";
   const filePath = `${input.storeId}/logo-${crypto.randomUUID()}.${extension}`;
   const { error: uploadError } = await client.storage
     .from("store-logos")
@@ -1233,7 +1157,9 @@ export async function listEntries(storeId: string, start?: string, end?: string)
 export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
   const client = requireSupabase();
   const commissionPercent =
-    entry.type === "receita" && entry.commissionPercent !== null && entry.commissionPercent !== undefined
+    entry.type === "receita" &&
+    entry.commissionPercent !== null &&
+    entry.commissionPercent !== undefined
       ? Number(entry.commissionPercent)
       : null;
   const commissionAmount =

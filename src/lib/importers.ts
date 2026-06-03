@@ -308,7 +308,3 @@ function sameEntry(entry: Entry, imported: ImportedEntry, dateToleranceDays: num
       days <= 1)
   );
 }
-
-export function nextDay(date: string) {
-  return format(addDays(parseISO(date), 1), "yyyy-MM-dd");
-}

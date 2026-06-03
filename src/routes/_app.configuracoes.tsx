@@ -32,6 +32,7 @@ import {
   listStoreMembers,
   listSubscriptionPlans,
   updateStoreAttendant,
+  updateStoreCategory,
   updateStoreMemberRole,
   updateProfileAppearance,
   updateStore,
@@ -214,6 +215,15 @@ function ConfigPage() {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao remover categoria."),
   });
+  const updateCategoryMutation = useMutation({
+    mutationFn: updateStoreCategory,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["store-categories", store?.id] });
+      toast.success("Categoria atualizada.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar categoria."),
+  });
 
   const mutation = useMutation({
     mutationFn: (payload: FormData) =>
@@ -319,14 +329,16 @@ function ConfigPage() {
             <CategoryList
               title="Receitas"
               items={categories.filter((category) => category.type === "receita")}
+              onUpdate={(category) => updateCategoryMutation.mutate(category)}
               onDelete={(id) => deleteCategoryMutation.mutate(id)}
-              pending={deleteCategoryMutation.isPending}
+              pending={deleteCategoryMutation.isPending || updateCategoryMutation.isPending}
             />
             <CategoryList
               title="Despesas"
               items={categories.filter((category) => category.type === "despesa")}
+              onUpdate={(category) => updateCategoryMutation.mutate(category)}
               onDelete={(id) => deleteCategoryMutation.mutate(id)}
-              pending={deleteCategoryMutation.isPending}
+              pending={deleteCategoryMutation.isPending || updateCategoryMutation.isPending}
             />
           </div>
         </CardContent>
@@ -368,248 +380,249 @@ function ConfigPage() {
 
       {canManageTeam && (
         <>
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold">Atendentes de venda</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <form
-              className="grid grid-cols-1 md:grid-cols-[1fr_150px_auto] gap-3 items-end"
-              onSubmit={(event) => {
-                event.preventDefault();
-                createAttendantMutation.mutate(new FormData(event.currentTarget));
-                event.currentTarget.reset();
-              }}
-            >
-              <Field label="Nome do atendente">
-                <Input name="name" placeholder="Ex: Israel" required />
-              </Field>
-              <Field label="Comissao (%)">
-                <Input
-                  name="commissionPercent"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  defaultValue={store.defaultCommissionPercent || 1}
-                  required
-                />
-              </Field>
-              <Button
-                type="submit"
-                size="sm"
-                className="gap-2"
-                disabled={createAttendantMutation.isPending}
+          <Card className="shadow-none">
+            <CardHeader>
+              <CardTitle className="text-sm font-semibold">Atendentes de venda</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <form
+                className="grid grid-cols-1 md:grid-cols-[1fr_150px_auto] gap-3 items-end"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  createAttendantMutation.mutate(new FormData(event.currentTarget));
+                  event.currentTarget.reset();
+                }}
               >
-                <Plus className="h-4 w-4" />
-                {createAttendantMutation.isPending ? "Adicionando..." : "Adicionar"}
-              </Button>
-            </form>
+                <Field label="Nome do atendente">
+                  <Input name="name" placeholder="Ex: Israel" required />
+                </Field>
+                <Field label="Comissao (%)">
+                  <Input
+                    name="commissionPercent"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    defaultValue={store.defaultCommissionPercent || 1}
+                    required
+                  />
+                </Field>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="gap-2"
+                  disabled={createAttendantMutation.isPending}
+                >
+                  <Plus className="h-4 w-4" />
+                  {createAttendantMutation.isPending ? "Adicionando..." : "Adicionar"}
+                </Button>
+              </form>
 
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full text-sm">
-                <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
-                  <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
-                    <th>Atendente</th>
-                    <th className="w-[150px]">Comissao</th>
-                    <th className="w-[80px] text-right">Acao</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {attendants.map((attendant) => (
-                    <tr key={attendant.id} className="border-b border-border last:border-0">
-                      <td className="px-3 py-2.5">
-                        <Input
-                          defaultValue={attendant.name}
-                          className="h-8"
-                          disabled={updateAttendantMutation.isPending}
-                          onBlur={(event) => {
-                            const name = event.currentTarget.value.trim();
-                            if (name && name !== attendant.name) {
-                              updateAttendantMutation.mutate({
-                                id: attendant.id,
-                                name,
-                                commissionPercent: attendant.commissionPercent,
-                              });
-                            }
-                          }}
-                        />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.1"
-                          defaultValue={attendant.commissionPercent}
-                          className="h-8"
-                          disabled={updateAttendantMutation.isPending}
-                          onBlur={(event) => {
-                            const commissionPercent = Number(event.currentTarget.value || 0);
-                            if (commissionPercent !== attendant.commissionPercent) {
-                              updateAttendantMutation.mutate({
-                                id: attendant.id,
-                                name: attendant.name,
-                                commissionPercent,
-                              });
-                            }
-                          }}
-                        />
-                      </td>
-                      <td className="px-3 py-2.5 text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          disabled={deleteAttendantMutation.isPending}
-                          onClick={() => {
-                            if (window.confirm(`Excluir o atendente "${attendant.name}"?`)) {
-                              deleteAttendantMutation.mutate(attendant.id);
-                            }
-                          }}
-                          aria-label="Excluir atendente de venda"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </td>
+              <div className="overflow-x-auto rounded-md border border-border">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+                    <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
+                      <th>Atendente</th>
+                      <th className="w-[150px]">Comissao</th>
+                      <th className="w-[80px] text-right">Acao</th>
                     </tr>
-                  ))}
-                  {!attendants.length && (
-                    <tr>
-                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={3}>
-                        Nenhum atendente cadastrado.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                  </thead>
+                  <tbody>
+                    {attendants.map((attendant) => (
+                      <tr key={attendant.id} className="border-b border-border last:border-0">
+                        <td className="px-3 py-2.5">
+                          <Input
+                            defaultValue={attendant.name}
+                            className="h-8"
+                            disabled={updateAttendantMutation.isPending}
+                            onBlur={(event) => {
+                              const name = event.currentTarget.value.trim();
+                              if (name && name !== attendant.name) {
+                                updateAttendantMutation.mutate({
+                                  id: attendant.id,
+                                  name,
+                                  commissionPercent: attendant.commissionPercent,
+                                });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.1"
+                            defaultValue={attendant.commissionPercent}
+                            className="h-8"
+                            disabled={updateAttendantMutation.isPending}
+                            onBlur={(event) => {
+                              const commissionPercent = Number(event.currentTarget.value || 0);
+                              if (commissionPercent !== attendant.commissionPercent) {
+                                updateAttendantMutation.mutate({
+                                  id: attendant.id,
+                                  name: attendant.name,
+                                  commissionPercent,
+                                });
+                              }
+                            }}
+                          />
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            disabled={deleteAttendantMutation.isPending}
+                            onClick={() => {
+                              if (window.confirm(`Excluir o atendente "${attendant.name}"?`)) {
+                                deleteAttendantMutation.mutate(attendant.id);
+                              }
+                            }}
+                            aria-label="Excluir atendente de venda"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!attendants.length && (
+                      <tr>
+                        <td className="px-3 py-8 text-center text-muted-foreground" colSpan={3}>
+                          Nenhum atendente cadastrado.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card className="shadow-none">
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold">Equipe da loja</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-              <div>
-                <div className="text-sm font-medium">
-                  {team?.members.length || 0} de {team?.maxUsers || capabilities.maxUsers} usuario(s)
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  O owner gerencia a loja. O atendente acessa apenas dashboard semanal e
-                  lancamentos.
+          <Card className="shadow-none">
+            <CardHeader>
+              <CardTitle className="text-sm font-semibold">Equipe da loja</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+                <div>
+                  <div className="text-sm font-medium">
+                    {team?.members.length || 0} de {team?.maxUsers || capabilities.maxUsers}{" "}
+                    usuario(s)
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    O owner gerencia a loja. O atendente acessa apenas dashboard semanal e
+                    lancamentos.
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <form
-              className="grid grid-cols-1 md:grid-cols-[1fr_1fr_150px_130px_auto] gap-3 items-end"
-              onSubmit={(event) => {
-                event.preventDefault();
-                createMemberMutation.mutate(new FormData(event.currentTarget));
-              }}
-            >
-              <Field label="Nome">
-                <Input name="name" placeholder="Nome do usuario" required />
-              </Field>
-              <Field label="E-mail">
-                <Input name="email" type="email" placeholder="usuario@email.com" required />
-              </Field>
-              <Field label="Senha inicial">
-                <Input name="password" type="password" autoComplete="new-password" required />
-              </Field>
-              <Field label="Role">
-                <Select name="role" defaultValue="atendente">
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="atendente">Atendente</SelectItem>
-                    <SelectItem value="owner">Owner</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Button
-                type="submit"
-                size="sm"
-                className="gap-2"
-                disabled={
-                  createMemberMutation.isPending ||
-                  Boolean(team && team.members.length >= team.maxUsers)
-                }
+              <form
+                className="grid grid-cols-1 md:grid-cols-[1fr_1fr_150px_130px_auto] gap-3 items-end"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  createMemberMutation.mutate(new FormData(event.currentTarget));
+                }}
               >
-                <UserPlus className="h-4 w-4" />
-                {createMemberMutation.isPending ? "Criando..." : "Cadastrar"}
-              </Button>
-            </form>
+                <Field label="Nome">
+                  <Input name="name" placeholder="Nome do usuario" required />
+                </Field>
+                <Field label="E-mail">
+                  <Input name="email" type="email" placeholder="usuario@email.com" required />
+                </Field>
+                <Field label="Senha inicial">
+                  <Input name="password" type="password" autoComplete="new-password" required />
+                </Field>
+                <Field label="Role">
+                  <Select name="role" defaultValue="atendente">
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="atendente">Atendente</SelectItem>
+                      <SelectItem value="owner">Owner</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="gap-2"
+                  disabled={
+                    createMemberMutation.isPending ||
+                    Boolean(team && team.members.length >= team.maxUsers)
+                  }
+                >
+                  <UserPlus className="h-4 w-4" />
+                  {createMemberMutation.isPending ? "Criando..." : "Cadastrar"}
+                </Button>
+              </form>
 
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full text-sm">
-                <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
-                  <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
-                    <th>Usuario</th>
-                    <th>E-mail</th>
-                    <th className="w-[170px]">Role</th>
-                    <th className="w-[80px] text-right">Acao</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(team?.members || []).map((member) => (
-                    <tr key={member.id} className="border-b border-border last:border-0">
-                      <td className="px-3 py-2.5 font-medium">{member.name}</td>
-                      <td className="px-3 py-2.5 text-muted-foreground">{member.email}</td>
-                      <td className="px-3 py-2.5">
-                        <Select
-                          value={member.role}
-                          onValueChange={(role) =>
-                            updateMemberMutation.mutate({
-                              memberId: member.id,
-                              role: role as StoreMemberRole,
-                            })
-                          }
-                          disabled={updateMemberMutation.isPending}
-                        >
-                          <SelectTrigger className="h-8">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="owner">Owner</SelectItem>
-                            <SelectItem value="atendente">Atendente</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="px-3 py-2.5 text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          disabled={member.role !== "atendente" || deleteMemberMutation.isPending}
-                          onClick={() => {
-                            if (window.confirm(`Excluir o atendente "${member.name}"?`)) {
-                              deleteMemberMutation.mutate(member.id);
+              <div className="overflow-x-auto rounded-md border border-border">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+                    <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
+                      <th>Usuario</th>
+                      <th>E-mail</th>
+                      <th className="w-[170px]">Role</th>
+                      <th className="w-[80px] text-right">Acao</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(team?.members || []).map((member) => (
+                      <tr key={member.id} className="border-b border-border last:border-0">
+                        <td className="px-3 py-2.5 font-medium">{member.name}</td>
+                        <td className="px-3 py-2.5 text-muted-foreground">{member.email}</td>
+                        <td className="px-3 py-2.5">
+                          <Select
+                            value={member.role}
+                            onValueChange={(role) =>
+                              updateMemberMutation.mutate({
+                                memberId: member.id,
+                                role: role as StoreMemberRole,
+                              })
                             }
-                          }}
-                          aria-label="Excluir atendente"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!team?.members.length && (
-                    <tr>
-                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={4}>
-                        Nenhum usuario carregado.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                            disabled={updateMemberMutation.isPending}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="owner">Owner</SelectItem>
+                              <SelectItem value="atendente">Atendente</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            disabled={member.role !== "atendente" || deleteMemberMutation.isPending}
+                            onClick={() => {
+                              if (window.confirm(`Excluir o atendente "${member.name}"?`)) {
+                                deleteMemberMutation.mutate(member.id);
+                              }
+                            }}
+                            aria-label="Excluir atendente"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!team?.members.length && (
+                      <tr>
+                        <td className="px-3 py-8 text-center text-muted-foreground" colSpan={4}>
+                          Nenhum usuario carregado.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
         </>
       )}
 
@@ -734,11 +747,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function CategoryList({
   title,
   items,
+  onUpdate,
   onDelete,
   pending,
 }: {
   title: string;
   items: StoreCategory[];
+  onUpdate: (category: { id: string; type: EntryType; name: string }) => void;
   onDelete: (id: string) => void;
   pending: boolean;
 }) {
@@ -750,14 +765,27 @@ function CategoryList({
       <div className="divide-y divide-border">
         {items.map((item) => (
           <div key={item.id} className="flex items-center justify-between gap-2 px-3 py-2">
-            <span className="text-sm">{item.name}</span>
+            <Input
+              defaultValue={item.name}
+              className="h-8"
+              disabled={pending || item.id.startsWith("default-")}
+              aria-label={`Editar categoria ${item.name}`}
+              onBlur={(event) => {
+                const name = event.currentTarget.value.trim();
+                if (name && name !== item.name) {
+                  onUpdate({ id: item.id, type: item.type, name });
+                }
+              }}
+            />
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-destructive"
               disabled={pending || item.id.startsWith("default-")}
-              onClick={() => onDelete(item.id)}
+              onClick={() => {
+                if (window.confirm(`Excluir a categoria "${item.name}"?`)) onDelete(item.id);
+              }}
               aria-label={`Excluir categoria ${item.name}`}
             >
               <Trash2 className="h-3.5 w-3.5" />

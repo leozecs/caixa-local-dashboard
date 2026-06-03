@@ -25,7 +25,15 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
-import { format, isSameDay, isSameMonth, parseISO, startOfMonth, subDays, subMonths } from "date-fns";
+import {
+  format,
+  isSameDay,
+  isSameMonth,
+  parseISO,
+  startOfMonth,
+  subDays,
+  subMonths,
+} from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -406,8 +414,17 @@ function DashboardPage() {
         <CardContent className="h-[260px] pl-0">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={revenueBySalesperson} margin={{ left: 16, right: 16, top: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.91 0.008 247)" vertical={false} />
-              <XAxis dataKey="funcionario" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="oklch(0.91 0.008 247)"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="funcionario"
+                tick={{ fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+              />
               <YAxis
                 tick={{ fontSize: 11 }}
                 tickLine={false}
@@ -415,8 +432,18 @@ function DashboardPage() {
                 tickFormatter={(value) => `R$${(Number(value) / 1000).toFixed(0)}k`}
               />
               <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="receita" name="Receita" fill="oklch(0.58 0.13 155)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="comissao" name="Comissao" fill="oklch(0.64 0.17 65)" radius={[4, 4, 0, 0]} />
+              <Bar
+                dataKey="receita"
+                name="Receita"
+                fill="oklch(0.58 0.13 155)"
+                radius={[4, 4, 0, 0]}
+              />
+              <Bar
+                dataKey="comissao"
+                name="Comissao"
+                fill="oklch(0.64 0.17 65)"
+                radius={[4, 4, 0, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

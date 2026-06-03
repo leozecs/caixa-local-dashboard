@@ -38,7 +38,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app")({
@@ -70,21 +69,6 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>;
   badge?: number;
 };
-
-const MONTHS = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-];
 
 const DISMISSED_ALERTS_KEY = "caixa-local-dismissed-alerts";
 
