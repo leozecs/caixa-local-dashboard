@@ -1,8 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { formatDistanceToNow, parseISO } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { Eye, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
@@ -232,13 +230,11 @@ function AdminLojas() {
                         </SelectContent>
                       </Select>
                     </td>
-                    <td className="px-4 py-2.5 text-muted-foreground text-xs">
-                      {store.lastAccess
-                        ? formatDistanceToNow(parseISO(store.lastAccess), {
-                            addSuffix: true,
-                            locale: ptBR,
-                          })
-                        : "Sem acesso"}
+                    <td
+                      className="px-4 py-2.5 text-muted-foreground text-xs tabular-nums"
+                      title={store.lastAccess || undefined}
+                    >
+                      {formatLastAccess(store.lastAccess)}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums font-medium">
                       {formatBRL(store.monthRevenue)}
@@ -524,6 +520,21 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </div>
   );
+}
+
+function formatLastAccess(value: string | null) {
+  if (!value) return "Sem acesso";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function RiskBadge({ risk }: { risk: "saudavel" | "atencao" | "critico" }) {

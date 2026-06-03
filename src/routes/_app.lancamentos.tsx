@@ -58,6 +58,7 @@ import {
   getCurrentStore,
   listEntryAttachments,
   listEntries,
+  listStoreMembers,
   listStoreCategories,
   openEntryAttachment,
   saveEntry,
@@ -66,6 +67,7 @@ import {
   type EntryAttachment,
   type EntryType,
   type PaymentMethod,
+  type StoreMember,
 } from "@/lib/data";
 
 export const Route = createFileRoute("/_app/lancamentos")({
@@ -100,6 +102,11 @@ function LancamentosPage() {
     queryKey: ["store-categories", store?.id],
     queryFn: () => listStoreCategories(store!.id),
     enabled: Boolean(store?.id),
+  });
+  const { data: team } = useQuery({
+    queryKey: ["store-members", store?.id],
+    queryFn: () => listStoreMembers(store!.id),
+    enabled: Boolean(store?.id && store?.memberRole !== "atendente"),
   });
 
   const saveMutation = useMutation({
@@ -274,6 +281,7 @@ function LancamentosPage() {
         entry={editing}
         storeId={store.id}
         defaultCommissionPercent={store.defaultCommissionPercent}
+        salespeople={(team?.members || []).filter((member) => member.role === "atendente")}
         receitaCategories={modalReceitaCategories}
         despesaCategories={modalDespesaCategories}
         defaultType={creatingType}
@@ -475,6 +483,7 @@ function EntryModal({
   entry,
   storeId,
   defaultCommissionPercent,
+  salespeople,
   receitaCategories,
   despesaCategories,
   defaultType,
@@ -486,6 +495,7 @@ function EntryModal({
   entry: Entry | null;
   storeId: string;
   defaultCommissionPercent: number;
+  salespeople: StoreMember[];
   receitaCategories: string[];
   despesaCategories: string[];
   defaultType: EntryType;
@@ -505,6 +515,13 @@ function EntryModal({
     String(entry?.commissionPercent ?? defaultCommissionPercent),
   );
   const [isRecurring, setIsRecurring] = useState(Boolean(entry?.isRecurring));
+  const findSalesperson = (name: string) =>
+    salespeople.find((member) => member.name.toLowerCase() === name.trim().toLowerCase());
+  const updateSalespersonName = (name: string) => {
+    setSalespersonName(name);
+    const matched = findSalesperson(name);
+    if (matched) setCommissionPercent(String(matched.commissionPercent));
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -516,9 +533,12 @@ function EntryModal({
     setPaymentMethod(entry?.paymentMethod || "Pix");
     setAmount(entry?.amount ? String(entry.amount) : "");
     setSalespersonName(entry?.salespersonName || "");
-    setCommissionPercent(String(entry?.commissionPercent ?? defaultCommissionPercent));
+    const matched = entry?.salespersonName ? findSalesperson(entry.salespersonName) : null;
+    setCommissionPercent(
+      String(entry?.commissionPercent ?? matched?.commissionPercent ?? defaultCommissionPercent),
+    );
     setIsRecurring(Boolean(entry?.isRecurring));
-  }, [entry, defaultType, defaultCommissionPercent, despesaCategories, receitaCategories, open]);
+  }, [entry, defaultType, defaultCommissionPercent, despesaCategories, receitaCategories, salespeople, open]);
 
   const categories = type === "receita" ? receitaCategories : despesaCategories;
 
@@ -594,9 +614,15 @@ function EntryModal({
               <Field label="Responsavel pela venda">
                 <Input
                   value={salespersonName}
-                  onChange={(event) => setSalespersonName(event.target.value)}
+                  onChange={(event) => updateSalespersonName(event.target.value)}
+                  list="salespeople-options"
                   placeholder="Nome do funcionario"
                 />
+                <datalist id="salespeople-options">
+                  {salespeople.map((member) => (
+                    <option key={member.id} value={member.name} />
+                  ))}
+                </datalist>
               </Field>
               <Field label="Comissao (%)">
                 <Input

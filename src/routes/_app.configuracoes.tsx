@@ -74,6 +74,7 @@ function ConfigPage() {
         email: String(payload.get("email") || ""),
         password: String(payload.get("password") || ""),
         role: String(payload.get("role") || "atendente") as StoreMemberRole,
+        commissionPercent: Number(payload.get("commissionPercent") || 1),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["store-members", store?.id] });
@@ -83,8 +84,17 @@ function ConfigPage() {
       toast.error(error instanceof Error ? error.message : "Erro ao cadastrar usuario."),
   });
   const updateMemberMutation = useMutation({
-    mutationFn: (input: { memberId: string; role: StoreMemberRole }) =>
-      updateStoreMemberRole({ storeId: store!.id, memberId: input.memberId, role: input.role }),
+    mutationFn: (input: {
+      memberId: string;
+      role: StoreMemberRole;
+      commissionPercent: number;
+    }) =>
+      updateStoreMemberRole({
+        storeId: store!.id,
+        memberId: input.memberId,
+        role: input.role,
+        commissionPercent: input.commissionPercent,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["store-members", store?.id] });
       toast.success("Permissao atualizada.");
@@ -351,7 +361,7 @@ function ConfigPage() {
             </div>
 
             <form
-              className="grid grid-cols-1 md:grid-cols-[1fr_1fr_150px_140px_auto] gap-3 items-end"
+              className="grid grid-cols-1 md:grid-cols-[1fr_1fr_150px_120px_130px_auto] gap-3 items-end"
               onSubmit={(event) => {
                 event.preventDefault();
                 createMemberMutation.mutate(new FormData(event.currentTarget));
@@ -365,6 +375,16 @@ function ConfigPage() {
               </Field>
               <Field label="Senha inicial">
                 <Input name="password" type="password" autoComplete="new-password" required />
+              </Field>
+              <Field label="Comissao (%)">
+                <Input
+                  name="commissionPercent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  defaultValue={store.defaultCommissionPercent}
+                />
               </Field>
               <Field label="Role">
                 <Select name="role" defaultValue="atendente">
@@ -398,6 +418,7 @@ function ConfigPage() {
                     <th>Usuario</th>
                     <th>E-mail</th>
                     <th className="w-[170px]">Role</th>
+                    <th className="w-[150px]">Comissao</th>
                     <th className="w-[80px] text-right">Acao</th>
                   </tr>
                 </thead>
@@ -413,6 +434,7 @@ function ConfigPage() {
                             updateMemberMutation.mutate({
                               memberId: member.id,
                               role: role as StoreMemberRole,
+                              commissionPercent: member.commissionPercent,
                             })
                           }
                           disabled={updateMemberMutation.isPending}
@@ -425,6 +447,24 @@ function ConfigPage() {
                             <SelectItem value="atendente">Atendente</SelectItem>
                           </SelectContent>
                         </Select>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          defaultValue={member.commissionPercent}
+                          className="h-8"
+                          disabled={updateMemberMutation.isPending}
+                          onBlur={(event) =>
+                            updateMemberMutation.mutate({
+                              memberId: member.id,
+                              role: member.role,
+                              commissionPercent: Number(event.currentTarget.value || 0),
+                            })
+                          }
+                        />
                       </td>
                       <td className="px-3 py-2.5 text-right">
                         <Button
@@ -446,7 +486,7 @@ function ConfigPage() {
                   ))}
                   {!team?.members.length && (
                     <tr>
-                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={4}>
+                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={5}>
                         Nenhum usuario carregado.
                       </td>
                     </tr>

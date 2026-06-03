@@ -181,6 +181,7 @@ export interface StoreMember {
   name: string;
   email: string;
   role: StoreMemberRole;
+  commissionPercent: number;
   createdAt: string;
 }
 
@@ -278,6 +279,7 @@ type SubscriptionPlanDbRow = {
 type StoreMemberDbRow = {
   id: string;
   role: StoreMemberRole;
+  commission_percent?: number | null;
   created_at: string;
   profiles?: { id: string; email: string; name: string } | { id: string; email: string; name: string }[] | null;
 };
@@ -543,6 +545,7 @@ function toStoreMember(row: StoreMemberDbRow): StoreMember {
     name: profile?.name || "Usuario",
     email: profile?.email || "",
     role: row.role,
+    commissionPercent: Number(row.commission_percent ?? 1),
     createdAt: row.created_at,
   };
 }
@@ -810,7 +813,14 @@ export async function getCurrentStore(profile: Profile) {
   const store = Array.isArray(data.stores) ? data.stores[0] : data.stores;
   if (!store) return null;
 
-  return { ...(await hydrateStore(store as StoreRow)), memberRole: data.role as StoreMemberRole };
+  const lastAccessAt = await touchStoreLastAccess(store.id);
+  return {
+    ...(await hydrateStore({
+      ...(store as StoreRow),
+      last_access_at: lastAccessAt || (store as StoreRow).last_access_at,
+    })),
+    memberRole: data.role as StoreMemberRole,
+  };
 }
 
 export async function listStores() {
@@ -821,6 +831,22 @@ export async function listStores() {
 
   if (error) throw error;
   return Promise.all((data || []).map((row) => hydrateStore(row as StoreRow)));
+}
+
+async function touchStoreLastAccess(storeId: string) {
+  const client = requireSupabase();
+  const lastAccessAt = new Date().toISOString();
+  const { error } = await client
+    .from("stores")
+    .update({ last_access_at: lastAccessAt })
+    .eq("id", storeId);
+
+  if (error) {
+    console.warn("Nao foi possivel atualizar ultimo acesso da loja:", error.message);
+    return null;
+  }
+
+  return lastAccessAt;
 }
 
 export async function createStore(input: {
@@ -998,6 +1024,7 @@ export async function createStoreMember(input: {
   email: string;
   password: string;
   role: StoreMemberRole;
+  commissionPercent: number;
 }) {
   const token = await getSessionToken();
   const response = await fetch(`/api/store-members?storeId=${encodeURIComponent(input.storeId)}`, {
@@ -1011,6 +1038,7 @@ export async function createStoreMember(input: {
       email: input.email,
       password: input.password,
       role: input.role,
+      commissionPercent: input.commissionPercent,
     }),
   });
   const payload = await response.json();
@@ -1022,6 +1050,7 @@ export async function updateStoreMemberRole(input: {
   storeId: string;
   memberId: string;
   role: StoreMemberRole;
+  commissionPercent: number;
 }) {
   const token = await getSessionToken();
   const response = await fetch(`/api/store-members?storeId=${encodeURIComponent(input.storeId)}`, {
@@ -1030,7 +1059,11 @@ export async function updateStoreMemberRole(input: {
       "content-type": "application/json",
       authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ memberId: input.memberId, role: input.role }),
+    body: JSON.stringify({
+      memberId: input.memberId,
+      role: input.role,
+      commissionPercent: input.commissionPercent,
+    }),
   });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload?.message || "Erro ao atualizar usuario.");
