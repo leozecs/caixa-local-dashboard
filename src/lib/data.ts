@@ -530,6 +530,14 @@ function defaultStoreCategories(storeId: string): StoreCategory[] {
   ];
 }
 
+function isDefaultStoreCategoryId(id: string) {
+  return id.startsWith("default-");
+}
+
+function categoryKey(type: EntryType, name: string) {
+  return `${type}:${name.trim().toLowerCase()}`;
+}
+
 function toSubscriptionPlan(row: SubscriptionPlanDbRow): SubscriptionPlan {
   return {
     id: row.id,
@@ -853,6 +861,62 @@ export async function listStoreCategories(storeId: string): Promise<StoreCategor
   return categories.length ? categories : defaultStoreCategories(storeId);
 }
 
+async function ensureStoreCategoryRows(storeId: string) {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("store_categories")
+    .select("id, store_id, type, name, sort_order")
+    .eq("store_id", storeId);
+
+  if (error) {
+    if (isMissingTableError(error)) throw new Error("Categorias ainda nao estao disponiveis.");
+    throw error;
+  }
+
+  const existing = ((data || []) as StoreCategoryDbRow[]).map(toStoreCategory);
+  const existingKeys = new Set(
+    existing.map((category) => categoryKey(category.type, category.name)),
+  );
+  const missingDefaults = defaultStoreCategories(storeId).filter(
+    (category) => !existingKeys.has(categoryKey(category.type, category.name)),
+  );
+
+  if (missingDefaults.length) {
+    const { error: insertError } = await client.from("store_categories").insert(
+      missingDefaults.map((category) => ({
+        store_id: category.storeId,
+        type: category.type,
+        name: category.name,
+        sort_order: category.sortOrder,
+      })),
+    );
+
+    if (insertError) throw insertError;
+  }
+
+  return listStoreCategories(storeId);
+}
+
+async function resolveStoreCategoryId(input: {
+  id: string;
+  storeId: string;
+  type: EntryType;
+  name: string;
+}) {
+  if (!isDefaultStoreCategoryId(input.id)) return input.id;
+
+  const categories = await ensureStoreCategoryRows(input.storeId);
+  const persisted = categories.find(
+    (category) =>
+      !isDefaultStoreCategoryId(category.id) &&
+      category.storeId === input.storeId &&
+      categoryKey(category.type, category.name) === categoryKey(input.type, input.name),
+  );
+
+  if (!persisted) throw new Error("Nao foi possivel preparar a categoria para edicao.");
+  return persisted.id;
+}
+
 export async function createStoreCategory(input: {
   storeId: string;
   type: EntryType;
@@ -877,10 +941,22 @@ export async function createStoreCategory(input: {
   return toStoreCategory(data as StoreCategoryDbRow);
 }
 
-export async function updateStoreCategory(input: { id: string; type: EntryType; name: string }) {
+export async function updateStoreCategory(input: {
+  id: string;
+  storeId: string;
+  type: EntryType;
+  name: string;
+  currentName: string;
+}) {
   const client = requireSupabase();
   const name = input.name.trim();
   if (!name) throw new Error("Informe o nome da categoria.");
+  const categoryId = await resolveStoreCategoryId({
+    id: input.id,
+    storeId: input.storeId,
+    type: input.type,
+    name: input.currentName,
+  });
 
   const { data, error } = await client
     .from("store_categories")
@@ -889,7 +965,7 @@ export async function updateStoreCategory(input: { id: string; type: EntryType; 
       name,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", input.id)
+    .eq("id", categoryId)
     .select("id, store_id, type, name, sort_order")
     .single();
 
@@ -897,9 +973,15 @@ export async function updateStoreCategory(input: { id: string; type: EntryType; 
   return toStoreCategory(data as StoreCategoryDbRow);
 }
 
-export async function deleteStoreCategory(id: string) {
+export async function deleteStoreCategory(input: {
+  id: string;
+  storeId: string;
+  type: EntryType;
+  name: string;
+}) {
   const client = requireSupabase();
-  const { error } = await client.from("store_categories").delete().eq("id", id);
+  const categoryId = await resolveStoreCategoryId(input);
+  const { error } = await client.from("store_categories").delete().eq("id", categoryId);
   if (error) throw error;
 }
 

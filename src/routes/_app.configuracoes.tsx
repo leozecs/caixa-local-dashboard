@@ -329,15 +329,23 @@ function ConfigPage() {
             <CategoryList
               title="Receitas"
               items={categories.filter((category) => category.type === "receita")}
-              onUpdate={(category) => updateCategoryMutation.mutate(category)}
-              onDelete={(id) => deleteCategoryMutation.mutate(id)}
+              onUpdate={(category) =>
+                updateCategoryMutation.mutate({ ...category, storeId: store.id })
+              }
+              onDelete={(category) =>
+                deleteCategoryMutation.mutate({ ...category, storeId: store.id })
+              }
               pending={deleteCategoryMutation.isPending || updateCategoryMutation.isPending}
             />
             <CategoryList
               title="Despesas"
               items={categories.filter((category) => category.type === "despesa")}
-              onUpdate={(category) => updateCategoryMutation.mutate(category)}
-              onDelete={(id) => deleteCategoryMutation.mutate(id)}
+              onUpdate={(category) =>
+                updateCategoryMutation.mutate({ ...category, storeId: store.id })
+              }
+              onDelete={(category) =>
+                deleteCategoryMutation.mutate({ ...category, storeId: store.id })
+              }
               pending={deleteCategoryMutation.isPending || updateCategoryMutation.isPending}
             />
           </div>
@@ -753,8 +761,8 @@ function CategoryList({
 }: {
   title: string;
   items: StoreCategory[];
-  onUpdate: (category: { id: string; type: EntryType; name: string }) => void;
-  onDelete: (id: string) => void;
+  onUpdate: (category: { id: string; type: EntryType; name: string; currentName: string }) => void;
+  onDelete: (category: { id: string; type: EntryType; name: string }) => void;
   pending: boolean;
 }) {
   return (
@@ -768,12 +776,12 @@ function CategoryList({
             <Input
               defaultValue={item.name}
               className="h-8"
-              disabled={pending || item.id.startsWith("default-")}
+              disabled={pending}
               aria-label={`Editar categoria ${item.name}`}
               onBlur={(event) => {
                 const name = event.currentTarget.value.trim();
                 if (name && name !== item.name) {
-                  onUpdate({ id: item.id, type: item.type, name });
+                  onUpdate({ id: item.id, type: item.type, name, currentName: item.name });
                 }
               }}
             />
@@ -782,9 +790,11 @@ function CategoryList({
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-destructive"
-              disabled={pending || item.id.startsWith("default-")}
+              disabled={pending}
               onClick={() => {
-                if (window.confirm(`Excluir a categoria "${item.name}"?`)) onDelete(item.id);
+                if (window.confirm(`Excluir a categoria "${item.name}"?`)) {
+                  onDelete({ id: item.id, type: item.type, name: item.name });
+                }
               }}
               aria-label={`Excluir categoria ${item.name}`}
             >
