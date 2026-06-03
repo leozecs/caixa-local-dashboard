@@ -67,6 +67,7 @@ function DashboardPage() {
     [today],
   );
   const [selectedMonth, setSelectedMonth] = useState(months[0].value);
+  const [selectedSalesperson, setSelectedSalesperson] = useState("todos");
   const monthStart = parseISO(selectedMonth);
   const previousMonth = startOfMonth(subMonths(monthStart, 1));
 
@@ -141,6 +142,34 @@ function DashboardPage() {
       return items;
     }, [])
     .sort((a, b) => b.valor - a.valor);
+  const salespeople = Array.from(
+    new Set(
+      currentEntries
+        .filter((entry) => entry.type === "receita")
+        .map((entry) => entry.salespersonName?.trim() || "Sem responsavel"),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+  const revenueBySalesperson = currentEntries
+    .filter((entry) => entry.type === "receita")
+    .filter((entry) =>
+      selectedSalesperson === "todos"
+        ? true
+        : (entry.salespersonName?.trim() || "Sem responsavel") === selectedSalesperson,
+    )
+    .reduce<Array<{ funcionario: string; receita: number; comissao: number }>>((items, entry) => {
+      const name = entry.salespersonName?.trim() || "Sem responsavel";
+      const item = items.find((row) => row.funcionario === name) || {
+        funcionario: name,
+        receita: 0,
+        comissao: 0,
+      };
+      if (!items.includes(item)) items.push(item);
+      item.receita += entry.amount;
+      item.comissao += entry.commissionAmount || 0;
+      return items;
+    }, [])
+    .sort((a, b) => b.receita - a.receita);
+  const topSalesperson = revenueBySalesperson[0];
 
   const todayEntries = currentEntries.filter((entry) => isSameDay(parseISO(entry.date), today));
   const todayRevenue = sumBy(todayEntries, "receita");
@@ -340,6 +369,59 @@ function DashboardPage() {
         />
       </div>
 
+      <Card className="shadow-none">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
+          <div>
+            <CardTitle className="text-sm font-semibold">Receita por funcionario</CardTitle>
+            <div className="text-xs text-muted-foreground">
+              {topSalesperson
+                ? `Melhor resultado: ${topSalesperson.funcionario} com ${formatBRL(topSalesperson.receita)}.`
+                : "Informe o responsavel nas receitas para ver o ranking."}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={selectedSalesperson} onValueChange={setSelectedSalesperson}>
+              <SelectTrigger className="h-8 w-[190px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos funcionarios</SelectItem>
+                {salespeople.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedSalesperson("todos")}
+              disabled={selectedSalesperson === "todos"}
+            >
+              Lista
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="h-[260px] pl-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={revenueBySalesperson} margin={{ left: 16, right: 16, top: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.91 0.008 247)" vertical={false} />
+              <XAxis dataKey="funcionario" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value) => `R$${(Number(value) / 1000).toFixed(0)}k`}
+              />
+              <Tooltip content={<ChartTooltip />} />
+              <Bar dataKey="receita" name="Receita" fill="oklch(0.58 0.13 155)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="comissao" name="Comissao" fill="oklch(0.64 0.17 65)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <Card className="xl:col-span-2 shadow-none">
           <CardHeader className="pb-2">
@@ -490,6 +572,7 @@ function DashboardPage() {
                   <th>Data</th>
                   <th>Tipo</th>
                   <th>Categoria</th>
+                  <th>Responsavel</th>
                   <th>Descrição</th>
                   <th>Pagamento</th>
                   <th className="text-right">Valor</th>
@@ -508,6 +591,9 @@ function DashboardPage() {
                       <EntryBadge type={entry.type} />
                     </td>
                     <td className="px-4 py-2.5">{entry.category}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
+                      {entry.type === "receita" ? entry.salespersonName || "-" : "-"}
+                    </td>
                     <td className="px-4 py-2.5 text-muted-foreground truncate max-w-[280px]">
                       {entry.description}
                     </td>

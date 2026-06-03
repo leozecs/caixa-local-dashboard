@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -57,6 +58,7 @@ import {
   getCurrentStore,
   listEntryAttachments,
   listEntries,
+  listStoreCategories,
   openEntryAttachment,
   saveEntry,
   uploadEntryAttachment,
@@ -72,8 +74,6 @@ export const Route = createFileRoute("/_app/lancamentos")({
 });
 
 const PAYMENT_METHODS: PaymentMethod[] = ["Pix", "Cartão", "Dinheiro", "Boleto", "Transferência"];
-const ALL_CATEGORIES = Array.from(new Set([...RECEITA_CATEGORIAS, ...DESPESA_CATEGORIAS]));
-
 function LancamentosPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
@@ -94,6 +94,11 @@ function LancamentosPage() {
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ["entries", store?.id],
     queryFn: () => listEntries(store!.id, "2000-01-01", "2100-01-01"),
+    enabled: Boolean(store?.id),
+  });
+  const { data: storeCategories = [] } = useQuery({
+    queryKey: ["store-categories", store?.id],
+    queryFn: () => listStoreCategories(store!.id),
     enabled: Boolean(store?.id),
   });
 
@@ -130,10 +135,32 @@ function LancamentosPage() {
       .filter((entry) =>
         search
           ? (entry.description ?? "").toLowerCase().includes(search.toLowerCase()) ||
-            entry.category.toLowerCase().includes(search.toLowerCase())
+            entry.category.toLowerCase().includes(search.toLowerCase()) ||
+            (entry.salespersonName ?? "").toLowerCase().includes(search.toLowerCase())
           : true,
       );
   }, [entries, filterCat, search]);
+
+  const receitaCategories = useMemo(
+    () => storeCategories.filter((category) => category.type === "receita").map((category) => category.name),
+    [storeCategories],
+  );
+  const despesaCategories = useMemo(
+    () => storeCategories.filter((category) => category.type === "despesa").map((category) => category.name),
+    [storeCategories],
+  );
+  const allCategories = useMemo(
+    () => Array.from(new Set([...receitaCategories, ...despesaCategories])),
+    [despesaCategories, receitaCategories],
+  );
+  const modalReceitaCategories = useMemo(
+    () => (receitaCategories.length ? receitaCategories : [...RECEITA_CATEGORIAS]),
+    [receitaCategories],
+  );
+  const modalDespesaCategories = useMemo(
+    () => (despesaCategories.length ? despesaCategories : [...DESPESA_CATEGORIAS]),
+    [despesaCategories],
+  );
 
   const receitas = filtered.filter((entry) => entry.type === "receita");
   const despesas = filtered.filter((entry) => entry.type === "despesa");
@@ -195,7 +222,7 @@ function LancamentosPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="todas">Todas categorias</SelectItem>
-              {ALL_CATEGORIES.map((category) => (
+              {allCategories.map((category) => (
                 <SelectItem key={category} value={category}>
                   {category}
                 </SelectItem>
@@ -246,6 +273,9 @@ function LancamentosPage() {
         }}
         entry={editing}
         storeId={store.id}
+        defaultCommissionPercent={store.defaultCommissionPercent}
+        receitaCategories={modalReceitaCategories}
+        despesaCategories={modalDespesaCategories}
         defaultType={creatingType}
         onSubmit={(payload) => saveMutation.mutate(payload)}
         pending={saveMutation.isPending}
@@ -325,7 +355,9 @@ function EntriesTable({
                 <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
                   <th>Data</th>
                   <th>Categoria</th>
+                  <th>Responsavel</th>
                   <th>Descricao</th>
+                  <th className="text-right">Comissao</th>
                   <th className="text-right">Valor</th>
                   {canManage && <th className="text-right w-[88px]">Acoes</th>}
                 </tr>
@@ -340,8 +372,17 @@ function EntriesTable({
                       {format(parseISO(entry.date), "dd/MM/yyyy")}
                     </td>
                     <td className="px-3 py-2.5">{entry.category}</td>
+                    <td className="px-3 py-2.5 text-muted-foreground">
+                      {entry.type === "receita" ? entry.salespersonName || "-" : "-"}
+                    </td>
                     <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[220px]">
+                      {entry.isRecurring ? "Recorrente - " : ""}
                       {entry.description || "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
+                      {entry.type === "receita" && entry.commissionAmount
+                        ? formatBRLPrecise(entry.commissionAmount)
+                        : "-"}
                     </td>
                     <td
                       className={cn(
@@ -433,6 +474,9 @@ function EntryModal({
   onOpenChange,
   entry,
   storeId,
+  defaultCommissionPercent,
+  receitaCategories,
+  despesaCategories,
   defaultType,
   onSubmit,
   pending,
@@ -441,6 +485,9 @@ function EntryModal({
   onOpenChange: (open: boolean) => void;
   entry: Entry | null;
   storeId: string;
+  defaultCommissionPercent: number;
+  receitaCategories: string[];
+  despesaCategories: string[];
   defaultType: EntryType;
   onSubmit: (entry: Entry) => void;
   pending: boolean;
@@ -453,21 +500,27 @@ function EntryModal({
   const [description, setDescription] = useState(entry?.description || "");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(entry?.paymentMethod || "Pix");
   const [amount, setAmount] = useState(entry?.amount ? String(entry.amount) : "");
+  const [salespersonName, setSalespersonName] = useState(entry?.salespersonName || "");
+  const [commissionPercent, setCommissionPercent] = useState(
+    String(entry?.commissionPercent ?? defaultCommissionPercent),
+  );
+  const [isRecurring, setIsRecurring] = useState(Boolean(entry?.isRecurring));
 
   useEffect(() => {
     if (!open) return;
     const nextType = entry?.type || defaultType;
     setType(nextType);
-    setCategory(
-      entry?.category || (nextType === "receita" ? RECEITA_CATEGORIAS[0] : DESPESA_CATEGORIAS[0]),
-    );
+    setCategory(entry?.category || (nextType === "receita" ? receitaCategories[0] : despesaCategories[0]));
     setDate(entry?.date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
     setDescription(entry?.description || "");
     setPaymentMethod(entry?.paymentMethod || "Pix");
     setAmount(entry?.amount ? String(entry.amount) : "");
-  }, [entry, defaultType, open]);
+    setSalespersonName(entry?.salespersonName || "");
+    setCommissionPercent(String(entry?.commissionPercent ?? defaultCommissionPercent));
+    setIsRecurring(Boolean(entry?.isRecurring));
+  }, [entry, defaultType, defaultCommissionPercent, despesaCategories, receitaCategories, open]);
 
-  const categories = type === "receita" ? RECEITA_CATEGORIAS : DESPESA_CATEGORIAS;
+  const categories = type === "receita" ? receitaCategories : despesaCategories;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -489,6 +542,9 @@ function EntryModal({
               description,
               paymentMethod,
               amount: Number(amount),
+              salespersonName,
+              commissionPercent: type === "receita" ? Number(commissionPercent) : null,
+              isRecurring,
             });
           }}
         >
@@ -499,9 +555,7 @@ function EntryModal({
                 onValueChange={(value) => {
                   const nextType = value as EntryType;
                   setType(nextType);
-                  setCategory(
-                    nextType === "receita" ? RECEITA_CATEGORIAS[0] : DESPESA_CATEGORIAS[0],
-                  );
+                  setCategory(nextType === "receita" ? receitaCategories[0] : despesaCategories[0]);
                 }}
               >
                 <SelectTrigger>
@@ -535,6 +589,27 @@ function EntryModal({
               </SelectContent>
             </Select>
           </Field>
+          {type === "receita" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Field label="Responsavel pela venda">
+                <Input
+                  value={salespersonName}
+                  onChange={(event) => setSalespersonName(event.target.value)}
+                  placeholder="Nome do funcionario"
+                />
+              </Field>
+              <Field label="Comissao (%)">
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={commissionPercent}
+                  onChange={(event) => setCommissionPercent(event.target.value)}
+                />
+              </Field>
+            </div>
+          )}
           <Field label="Descricao">
             <Input
               value={description}
@@ -571,6 +646,13 @@ function EntryModal({
               />
             </Field>
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={isRecurring}
+              onCheckedChange={(checked) => setIsRecurring(checked === true)}
+            />
+            Lancamento recorrente
+          </label>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar

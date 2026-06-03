@@ -170,21 +170,27 @@ function MetasPage() {
                 type="number"
                 min="0"
                 step="100"
-                value={formGoals.revenue}
+                value={formGoals.revenue || ""}
                 onChange={(event) =>
-                  setFormGoals((current) => ({ ...current, revenue: Number(event.target.value) }))
+                  setFormGoals((current) => ({
+                    ...current,
+                    revenue: event.target.value === "" ? 0 : Number(event.target.value),
+                  }))
                 }
               />
             </Field>
-            <Field label="Margem minima (%)">
+            <Field label="Margem minima sobre faturamento total (%)">
               <Input
                 type="number"
                 min="0"
                 max="100"
                 step="0.5"
-                value={formGoals.margin}
+                value={formGoals.margin || ""}
                 onChange={(event) =>
-                  setFormGoals((current) => ({ ...current, margin: Number(event.target.value) }))
+                  setFormGoals((current) => ({
+                    ...current,
+                    margin: event.target.value === "" ? 0 : Number(event.target.value),
+                  }))
                 }
               />
             </Field>
@@ -193,11 +199,11 @@ function MetasPage() {
                 type="number"
                 min="0"
                 step="100"
-                value={formGoals.maxExpenses}
+                value={formGoals.maxExpenses || ""}
                 onChange={(event) =>
                   setFormGoals((current) => ({
                     ...current,
-                    maxExpenses: Number(event.target.value),
+                    maxExpenses: event.target.value === "" ? 0 : Number(event.target.value),
                   }))
                 }
               />

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ImageUp, Save, Trash2, UserPlus } from "lucide-react";
+import { ImageUp, Plus, Save, Trash2, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,9 +20,12 @@ import { PlansCard } from "@/components/admin/plans-card";
 import { cacheProfile, useSession } from "@/lib/auth";
 import {
   createStoreMember,
+  createStoreCategory,
+  deleteStoreCategory,
   deleteStoreMember,
   getCurrentStore,
   getPlanCapabilities,
+  listStoreCategories,
   listStoreMembers,
   listSubscriptionPlans,
   updateStoreMemberRole,
@@ -31,6 +34,7 @@ import {
   uploadStoreLogo,
   type StoreMemberRole,
 } from "@/lib/data";
+import type { EntryType, StoreCategory } from "@/lib/data";
 
 export const Route = createFileRoute("/_app/configuracoes")({
   head: () => ({ meta: [{ title: "Configuracoes - Caixa Local" }] }),
@@ -56,6 +60,11 @@ function ConfigPage() {
     queryKey: ["store-members", store?.id],
     queryFn: () => listStoreMembers(store!.id),
     enabled: Boolean(store?.id && canManageTeam),
+  });
+  const { data: categories = [] } = useQuery({
+    queryKey: ["store-categories", store?.id],
+    queryFn: () => listStoreCategories(store!.id),
+    enabled: Boolean(store?.id),
   });
   const createMemberMutation = useMutation({
     mutationFn: (payload: FormData) =>
@@ -137,6 +146,29 @@ function ConfigPage() {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao atualizar logo."),
   });
+  const categoryMutation = useMutation({
+    mutationFn: (payload: FormData) =>
+      createStoreCategory({
+        storeId: store!.id,
+        type: String(payload.get("type") || "receita") as EntryType,
+        name: String(payload.get("name") || ""),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["store-categories", store?.id] });
+      toast.success("Categoria adicionada.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao adicionar categoria."),
+  });
+  const deleteCategoryMutation = useMutation({
+    mutationFn: deleteStoreCategory,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["store-categories", store?.id] });
+      toast.success("Categoria removida.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao remover categoria."),
+  });
 
   const mutation = useMutation({
     mutationFn: (payload: FormData) =>
@@ -146,6 +178,7 @@ function ConfigPage() {
         segment: String(payload.get("segment") || ""),
         city: String(payload.get("city") || ""),
         cnpj: String(payload.get("cnpj") || "") || null,
+        defaultCommissionPercent: Number(payload.get("defaultCommissionPercent") || 0),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["current-store"] });
@@ -196,12 +229,72 @@ function ConfigPage() {
               <Label>CNPJ</Label>
               <Input name="cnpj" defaultValue={store.cnpj || ""} />
             </div>
+            <Field label="Comissao inicial (%)">
+              <Input
+                name="defaultCommissionPercent"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                defaultValue={store.defaultCommissionPercent}
+              />
+            </Field>
             <div className="md:col-span-2 flex justify-end">
               <Button type="submit" size="sm" className="gap-2" disabled={mutation.isPending}>
                 <Save className="h-4 w-4" /> {mutation.isPending ? "Salvando..." : "Salvar"}
               </Button>
             </div>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardHeader>
+          <CardTitle className="text-sm font-semibold">Categorias</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form
+            className="grid grid-cols-1 md:grid-cols-[150px_1fr_auto] gap-3 items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              categoryMutation.mutate(new FormData(event.currentTarget));
+              event.currentTarget.reset();
+            }}
+          >
+            <Field label="Tipo">
+              <Select name="type" defaultValue="receita">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="receita">Receita</SelectItem>
+                  <SelectItem value="despesa">Despesa</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Nova categoria">
+              <Input name="name" placeholder="Ex: Comissoes, Manutencao, Marketplace" required />
+            </Field>
+            <Button type="submit" size="sm" className="gap-2" disabled={categoryMutation.isPending}>
+              <Plus className="h-4 w-4" />
+              {categoryMutation.isPending ? "Adicionando..." : "Adicionar"}
+            </Button>
+          </form>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <CategoryList
+              title="Receitas"
+              items={categories.filter((category) => category.type === "receita")}
+              onDelete={(id) => deleteCategoryMutation.mutate(id)}
+              pending={deleteCategoryMutation.isPending}
+            />
+            <CategoryList
+              title="Despesas"
+              items={categories.filter((category) => category.type === "despesa")}
+              onDelete={(id) => deleteCategoryMutation.mutate(id)}
+              pending={deleteCategoryMutation.isPending}
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -479,6 +572,49 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="space-y-1.5">
       <Label>{label}</Label>
       {children}
+    </div>
+  );
+}
+
+function CategoryList({
+  title,
+  items,
+  onDelete,
+  pending,
+}: {
+  title: string;
+  items: StoreCategory[];
+  onDelete: (id: string) => void;
+  pending: boolean;
+}) {
+  return (
+    <div className="rounded-md border border-border">
+      <div className="border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {title}
+      </div>
+      <div className="divide-y divide-border">
+        {items.map((item) => (
+          <div key={item.id} className="flex items-center justify-between gap-2 px-3 py-2">
+            <span className="text-sm">{item.name}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+              disabled={pending || item.id.startsWith("default-")}
+              onClick={() => onDelete(item.id)}
+              aria-label={`Excluir categoria ${item.name}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ))}
+        {!items.length && (
+          <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+            Nenhuma categoria cadastrada.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

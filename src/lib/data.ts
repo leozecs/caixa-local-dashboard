@@ -46,6 +46,7 @@ export interface Store {
   memberRole?: StoreMemberRole;
   logoPath?: string | null;
   logoUrl?: string | null;
+  defaultCommissionPercent: number;
 }
 
 export interface Entry {
@@ -57,6 +58,18 @@ export interface Entry {
   description?: string | null;
   paymentMethod: PaymentMethod;
   amount: number;
+  salespersonName?: string | null;
+  commissionPercent?: number | null;
+  commissionAmount?: number;
+  isRecurring?: boolean;
+}
+
+export interface StoreCategory {
+  id: string;
+  storeId: string;
+  type: EntryType;
+  name: string;
+  sortOrder: number;
 }
 
 export interface EntryAttachment {
@@ -199,6 +212,7 @@ type StoreRow = {
   cnpj: string | null;
   daily_closing_whatsapp_enabled?: boolean | null;
   logo_path?: string | null;
+  default_commission_percent?: number | null;
   created_at: string;
 };
 
@@ -211,6 +225,18 @@ type EntryRow = {
   description: string | null;
   payment_method: PaymentMethod;
   amount: number;
+  salesperson_name?: string | null;
+  commission_percent?: number | null;
+  commission_amount?: number | null;
+  is_recurring?: boolean | null;
+};
+
+type StoreCategoryDbRow = {
+  id: string;
+  store_id: string;
+  type: EntryType;
+  name: string;
+  sort_order: number;
 };
 
 type EntryAttachmentDbRow = {
@@ -415,6 +441,23 @@ function toEntry(row: EntryRow): Entry {
     description: row.description,
     paymentMethod: row.payment_method,
     amount: row.amount / 100,
+    salespersonName: row.salesperson_name || null,
+    commissionPercent:
+      row.commission_percent === null || row.commission_percent === undefined
+        ? null
+        : Number(row.commission_percent),
+    commissionAmount: (row.commission_amount || 0) / 100,
+    isRecurring: Boolean(row.is_recurring),
+  };
+}
+
+function toStoreCategory(row: StoreCategoryDbRow): StoreCategory {
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    type: row.type,
+    name: row.name,
+    sortOrder: row.sort_order,
   };
 }
 
@@ -455,6 +498,25 @@ function storeNameFromJoin(row: SubscriptionDbRow) {
   const joined = row.stores;
   if (Array.isArray(joined)) return joined[0]?.name || "Loja";
   return joined?.name || "Loja";
+}
+
+function defaultStoreCategories(storeId: string): StoreCategory[] {
+  return [
+    ...RECEITA_CATEGORIAS.map((name, index) => ({
+      id: `default-receita-${name}`,
+      storeId,
+      type: "receita" as EntryType,
+      name,
+      sortOrder: (index + 1) * 10,
+    })),
+    ...DESPESA_CATEGORIAS.map((name, index) => ({
+      id: `default-despesa-${name}`,
+      storeId,
+      type: "despesa" as EntryType,
+      name,
+      sortOrder: (index + 1) * 10,
+    })),
+  ];
 }
 
 function toSubscriptionPlan(row: SubscriptionPlanDbRow): SubscriptionPlan {
@@ -809,6 +871,9 @@ export async function updateStore(id: string, input: Partial<Store>) {
     payload.daily_closing_whatsapp_enabled = input.dailyClosingWhatsappEnabled;
   }
   if (input.logoPath !== undefined) payload.logo_path = input.logoPath;
+  if (input.defaultCommissionPercent !== undefined) {
+    payload.default_commission_percent = input.defaultCommissionPercent;
+  }
 
   const { data, error } = await client
     .from("stores")
@@ -819,6 +884,55 @@ export async function updateStore(id: string, input: Partial<Store>) {
 
   if (error) throw error;
   return hydrateStore(data as StoreRow);
+}
+
+export async function listStoreCategories(storeId: string): Promise<StoreCategory[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("store_categories")
+    .select("id, store_id, type, name, sort_order")
+    .eq("store_id", storeId)
+    .order("type", { ascending: false })
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) {
+    if (isMissingTableError(error)) return defaultStoreCategories(storeId);
+    throw error;
+  }
+
+  const categories = ((data || []) as StoreCategoryDbRow[]).map(toStoreCategory);
+  return categories.length ? categories : defaultStoreCategories(storeId);
+}
+
+export async function createStoreCategory(input: {
+  storeId: string;
+  type: EntryType;
+  name: string;
+}) {
+  const client = requireSupabase();
+  const name = input.name.trim();
+  if (!name) throw new Error("Informe o nome da categoria.");
+
+  const { data, error } = await client
+    .from("store_categories")
+    .insert({
+      store_id: input.storeId,
+      type: input.type,
+      name,
+      sort_order: 100,
+    })
+    .select("id, store_id, type, name, sort_order")
+    .single();
+
+  if (error) throw error;
+  return toStoreCategory(data as StoreCategoryDbRow);
+}
+
+export async function deleteStoreCategory(id: string) {
+  const client = requireSupabase();
+  const { error } = await client.from("store_categories").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function uploadStoreLogo(input: {
@@ -997,6 +1111,14 @@ export async function listEntries(storeId: string, start?: string, end?: string)
 
 export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
   const client = requireSupabase();
+  const commissionPercent =
+    entry.type === "receita" && entry.commissionPercent !== null && entry.commissionPercent !== undefined
+      ? Number(entry.commissionPercent)
+      : null;
+  const commissionAmount =
+    entry.type === "receita" && commissionPercent !== null
+      ? Math.round(entry.amount * (commissionPercent / 100) * 100)
+      : 0;
   const payload = {
     store_id: entry.storeId,
     entry_date: entry.date.slice(0, 10),
@@ -1005,6 +1127,10 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
     description: entry.description || null,
     payment_method: entry.paymentMethod,
     amount: Math.round(entry.amount * 100),
+    salesperson_name: entry.type === "receita" ? entry.salespersonName?.trim() || null : null,
+    commission_percent: commissionPercent,
+    commission_amount: commissionAmount,
+    is_recurring: Boolean(entry.isRecurring),
     updated_at: new Date().toISOString(),
   };
 
@@ -1509,6 +1635,7 @@ async function hydrateStore(row: StoreRow): Promise<Store> {
     dailyClosingWhatsappEnabled: Boolean(row.daily_closing_whatsapp_enabled),
     logoPath: row.logo_path || null,
     logoUrl,
+    defaultCommissionPercent: Number(row.default_commission_percent ?? 1),
   };
 }
 
