@@ -72,6 +72,14 @@ export interface StoreCategory {
   sortOrder: number;
 }
 
+export interface StoreAttendant {
+  id: string;
+  storeId: string;
+  name: string;
+  commissionPercent: number;
+  createdAt: string;
+}
+
 export interface EntryAttachment {
   id: string;
   storeId: string;
@@ -181,7 +189,6 @@ export interface StoreMember {
   name: string;
   email: string;
   role: StoreMemberRole;
-  commissionPercent: number;
   createdAt: string;
 }
 
@@ -240,6 +247,14 @@ type StoreCategoryDbRow = {
   sort_order: number;
 };
 
+type StoreAttendantDbRow = {
+  id: string;
+  store_id: string;
+  name: string;
+  commission_percent: number;
+  created_at: string;
+};
+
 type EntryAttachmentDbRow = {
   id: string;
   store_id: string;
@@ -279,7 +294,6 @@ type SubscriptionPlanDbRow = {
 type StoreMemberDbRow = {
   id: string;
   role: StoreMemberRole;
-  commission_percent?: number | null;
   created_at: string;
   profiles?: { id: string; email: string; name: string } | { id: string; email: string; name: string }[] | null;
 };
@@ -463,6 +477,16 @@ function toStoreCategory(row: StoreCategoryDbRow): StoreCategory {
   };
 }
 
+function toStoreAttendant(row: StoreAttendantDbRow): StoreAttendant {
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    name: row.name,
+    commissionPercent: Number(row.commission_percent),
+    createdAt: row.created_at,
+  };
+}
+
 function toEntryAttachment(row: EntryAttachmentDbRow): EntryAttachment {
   return {
     id: row.id,
@@ -545,7 +569,6 @@ function toStoreMember(row: StoreMemberDbRow): StoreMember {
     name: profile?.name || "Usuario",
     email: profile?.email || "",
     role: row.role,
-    commissionPercent: Number(row.commission_percent ?? 1),
     createdAt: row.created_at,
   };
 }
@@ -961,6 +984,75 @@ export async function deleteStoreCategory(id: string) {
   if (error) throw error;
 }
 
+export async function listStoreAttendants(storeId: string): Promise<StoreAttendant[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("store_attendants")
+    .select("id, store_id, name, commission_percent, created_at")
+    .eq("store_id", storeId)
+    .order("name", { ascending: true });
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+
+  return ((data || []) as StoreAttendantDbRow[]).map(toStoreAttendant);
+}
+
+export async function createStoreAttendant(input: {
+  storeId: string;
+  name: string;
+  commissionPercent: number;
+}) {
+  const client = requireSupabase();
+  const name = input.name.trim();
+  if (!name) throw new Error("Informe o nome do atendente.");
+
+  const { data, error } = await client
+    .from("store_attendants")
+    .insert({
+      store_id: input.storeId,
+      name,
+      commission_percent: input.commissionPercent,
+    })
+    .select("id, store_id, name, commission_percent, created_at")
+    .single();
+
+  if (error) throw error;
+  return toStoreAttendant(data as StoreAttendantDbRow);
+}
+
+export async function updateStoreAttendant(input: {
+  id: string;
+  name: string;
+  commissionPercent: number;
+}) {
+  const client = requireSupabase();
+  const name = input.name.trim();
+  if (!name) throw new Error("Informe o nome do atendente.");
+
+  const { data, error } = await client
+    .from("store_attendants")
+    .update({
+      name,
+      commission_percent: input.commissionPercent,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.id)
+    .select("id, store_id, name, commission_percent, created_at")
+    .single();
+
+  if (error) throw error;
+  return toStoreAttendant(data as StoreAttendantDbRow);
+}
+
+export async function deleteStoreAttendant(id: string) {
+  const client = requireSupabase();
+  const { error } = await client.from("store_attendants").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function uploadStoreLogo(input: {
   storeId: string;
   currentLogoPath?: string | null;
@@ -1024,7 +1116,6 @@ export async function createStoreMember(input: {
   email: string;
   password: string;
   role: StoreMemberRole;
-  commissionPercent: number;
 }) {
   const token = await getSessionToken();
   const response = await fetch(`/api/store-members?storeId=${encodeURIComponent(input.storeId)}`, {
@@ -1038,7 +1129,6 @@ export async function createStoreMember(input: {
       email: input.email,
       password: input.password,
       role: input.role,
-      commissionPercent: input.commissionPercent,
     }),
   });
   const payload = await response.json();
@@ -1050,7 +1140,6 @@ export async function updateStoreMemberRole(input: {
   storeId: string;
   memberId: string;
   role: StoreMemberRole;
-  commissionPercent: number;
 }) {
   const token = await getSessionToken();
   const response = await fetch(`/api/store-members?storeId=${encodeURIComponent(input.storeId)}`, {
@@ -1062,7 +1151,6 @@ export async function updateStoreMemberRole(input: {
     body: JSON.stringify({
       memberId: input.memberId,
       role: input.role,
-      commissionPercent: input.commissionPercent,
     }),
   });
   const payload = await response.json();

@@ -58,7 +58,7 @@ import {
   getCurrentStore,
   listEntryAttachments,
   listEntries,
-  listStoreMembers,
+  listStoreAttendants,
   listStoreCategories,
   openEntryAttachment,
   saveEntry,
@@ -67,7 +67,7 @@ import {
   type EntryAttachment,
   type EntryType,
   type PaymentMethod,
-  type StoreMember,
+  type StoreAttendant,
 } from "@/lib/data";
 
 export const Route = createFileRoute("/_app/lancamentos")({
@@ -103,9 +103,9 @@ function LancamentosPage() {
     queryFn: () => listStoreCategories(store!.id),
     enabled: Boolean(store?.id),
   });
-  const { data: team } = useQuery({
-    queryKey: ["store-members", store?.id],
-    queryFn: () => listStoreMembers(store!.id),
+  const { data: attendants = [] } = useQuery({
+    queryKey: ["store-attendants", store?.id],
+    queryFn: () => listStoreAttendants(store!.id),
     enabled: Boolean(store?.id),
   });
 
@@ -281,7 +281,7 @@ function LancamentosPage() {
         entry={editing}
         storeId={store.id}
         defaultCommissionPercent={store.defaultCommissionPercent}
-        salespeople={(team?.members || []).filter((member) => member.role === "atendente")}
+        attendants={attendants}
         receitaCategories={modalReceitaCategories}
         despesaCategories={modalDespesaCategories}
         defaultType={creatingType}
@@ -483,7 +483,7 @@ function EntryModal({
   entry,
   storeId,
   defaultCommissionPercent,
-  salespeople,
+  attendants,
   receitaCategories,
   despesaCategories,
   defaultType,
@@ -495,7 +495,7 @@ function EntryModal({
   entry: Entry | null;
   storeId: string;
   defaultCommissionPercent: number;
-  salespeople: StoreMember[];
+  attendants: StoreAttendant[];
   receitaCategories: string[];
   despesaCategories: string[];
   defaultType: EntryType;
@@ -516,9 +516,9 @@ function EntryModal({
   );
   const [isRecurring, setIsRecurring] = useState(Boolean(entry?.isRecurring));
   const findSalesperson = (value: string) =>
-    salespeople.find((member) => member.id === value || member.name === value);
-  const updateSalesperson = (memberId: string) => {
-    const matched = findSalesperson(memberId);
+    attendants.find((attendant) => attendant.id === value || attendant.name === value);
+  const updateSalesperson = (attendantId: string) => {
+    const matched = findSalesperson(attendantId);
     setSalespersonName(matched?.name || "");
     if (matched) setCommissionPercent(String(matched.commissionPercent));
   };
@@ -538,7 +538,7 @@ function EntryModal({
       String(entry?.commissionPercent ?? matched?.commissionPercent ?? defaultCommissionPercent),
     );
     setIsRecurring(Boolean(entry?.isRecurring));
-  }, [entry, defaultType, defaultCommissionPercent, despesaCategories, receitaCategories, salespeople, open]);
+  }, [entry, defaultType, defaultCommissionPercent, despesaCategories, receitaCategories, attendants, open]);
 
   const categories = type === "receita" ? receitaCategories : despesaCategories;
 
@@ -615,21 +615,21 @@ function EntryModal({
                 <Select
                   value={findSalesperson(salespersonName)?.id || ""}
                   onValueChange={updateSalesperson}
-                  disabled={!salespeople.length}
+                  disabled={!attendants.length}
                 >
                   <SelectTrigger>
                     <SelectValue
                       placeholder={
-                        salespeople.length
+                        attendants.length
                           ? "Selecione o atendente"
                           : "Cadastre um atendente em Configuracoes"
                       }
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {salespeople.map((member) => (
-                      <SelectItem key={member.id} value={member.id}>
-                        {member.name}
+                    {attendants.map((attendant) => (
+                      <SelectItem key={attendant.id} value={attendant.id}>
+                        {attendant.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

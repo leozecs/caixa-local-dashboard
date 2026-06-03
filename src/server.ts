@@ -178,12 +178,6 @@ function planMaxUsers(plan: string) {
   return 1;
 }
 
-function normalizeCommissionPercent(value: unknown) {
-  const parsed = Number(value ?? 1);
-  if (!Number.isFinite(parsed)) return 1;
-  return Math.min(100, Math.max(0, parsed));
-}
-
 async function getStorePlan(env: unknown, storeId: string) {
   const response = await supabaseAdminFetch(
     env,
@@ -419,13 +413,12 @@ async function getStoreForTeam(env: unknown, storeId: string) {
 async function listStoreMembers(env: unknown, storeId: string) {
   const response = await supabaseAdminFetch(
     env,
-    `/rest/v1/store_members?store_id=eq.${encodeURIComponent(storeId)}&select=id,role,commission_percent,created_at,profiles(id,email,name)&order=created_at.asc`,
+    `/rest/v1/store_members?store_id=eq.${encodeURIComponent(storeId)}&select=id,role,created_at,profiles(id,email,name)&order=created_at.asc`,
   );
   if (!response.ok) throw new Response("Nao foi possivel carregar equipe.", { status: 500 });
   return (await response.json()) as Array<{
     id: string;
     role: StoreMemberRole;
-    commission_percent?: number | null;
     created_at: string;
     profiles?: { id: string; email: string; name: string } | null;
   }>;
@@ -464,13 +457,11 @@ async function handleStoreMembers(request: Request, env: unknown) {
       email?: string;
       password?: string;
       role?: StoreMemberRole;
-      commissionPercent?: number;
     };
     const name = body.name?.trim();
     const email = body.email?.trim().toLowerCase();
     const password = body.password || "";
     const role: StoreMemberRole = body.role === "owner" ? "owner" : "atendente";
-    const commissionPercent = normalizeCommissionPercent(body.commissionPercent);
 
     if (!name || !email || !password) {
       return jsonResponse({ message: "Preencha nome, email e senha." }, { status: 400 });
@@ -539,7 +530,6 @@ async function handleStoreMembers(request: Request, env: unknown) {
         store_id: storeId,
         user_id: authUser.id,
         role,
-        commission_percent: commissionPercent,
       }),
     });
 
@@ -562,11 +552,9 @@ async function handleStoreMembers(request: Request, env: unknown) {
     const body = (await request.json()) as {
       memberId?: string;
       role?: StoreMemberRole;
-      commissionPercent?: number;
     };
     const memberId = body.memberId || "";
     const role: StoreMemberRole = body.role === "owner" ? "owner" : "atendente";
-    const commissionPercent = normalizeCommissionPercent(body.commissionPercent);
     if (!memberId) return jsonResponse({ message: "Membro obrigatorio." }, { status: 400 });
 
     const members = await listStoreMembers(env, storeId);
@@ -589,7 +577,7 @@ async function handleStoreMembers(request: Request, env: unknown) {
       {
         method: "PATCH",
         prefer: "return=minimal",
-        body: JSON.stringify({ role, commission_percent: commissionPercent }),
+        body: JSON.stringify({ role }),
       },
     );
 

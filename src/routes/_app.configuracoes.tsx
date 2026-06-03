@@ -19,15 +19,19 @@ import {
 import { PlansCard } from "@/components/admin/plans-card";
 import { cacheProfile, useSession } from "@/lib/auth";
 import {
+  createStoreAttendant,
   createStoreMember,
   createStoreCategory,
+  deleteStoreAttendant,
   deleteStoreCategory,
   deleteStoreMember,
   getCurrentStore,
   getPlanCapabilities,
+  listStoreAttendants,
   listStoreCategories,
   listStoreMembers,
   listSubscriptionPlans,
+  updateStoreAttendant,
   updateStoreMemberRole,
   updateProfileAppearance,
   updateStore,
@@ -61,6 +65,11 @@ function ConfigPage() {
     queryFn: () => listStoreMembers(store!.id),
     enabled: Boolean(store?.id && canManageTeam),
   });
+  const { data: attendants = [] } = useQuery({
+    queryKey: ["store-attendants", store?.id],
+    queryFn: () => listStoreAttendants(store!.id),
+    enabled: Boolean(store?.id && canManageTeam),
+  });
   const { data: categories = [] } = useQuery({
     queryKey: ["store-categories", store?.id],
     queryFn: () => listStoreCategories(store!.id),
@@ -74,7 +83,6 @@ function ConfigPage() {
         email: String(payload.get("email") || ""),
         password: String(payload.get("password") || ""),
         role: String(payload.get("role") || "atendente") as StoreMemberRole,
-        commissionPercent: Number(payload.get("commissionPercent") || 1),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["store-members", store?.id] });
@@ -84,16 +92,11 @@ function ConfigPage() {
       toast.error(error instanceof Error ? error.message : "Erro ao cadastrar usuario."),
   });
   const updateMemberMutation = useMutation({
-    mutationFn: (input: {
-      memberId: string;
-      role: StoreMemberRole;
-      commissionPercent: number;
-    }) =>
+    mutationFn: (input: { memberId: string; role: StoreMemberRole }) =>
       updateStoreMemberRole({
         storeId: store!.id,
         memberId: input.memberId,
         role: input.role,
-        commissionPercent: input.commissionPercent,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["store-members", store?.id] });
@@ -110,6 +113,38 @@ function ConfigPage() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao excluir atendente."),
+  });
+  const createAttendantMutation = useMutation({
+    mutationFn: (payload: FormData) =>
+      createStoreAttendant({
+        storeId: store!.id,
+        name: String(payload.get("name") || ""),
+        commissionPercent: Number(payload.get("commissionPercent") || 0),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["store-attendants", store?.id] });
+      toast.success("Atendente de venda cadastrado.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao cadastrar atendente."),
+  });
+  const updateAttendantMutation = useMutation({
+    mutationFn: updateStoreAttendant,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["store-attendants", store?.id] });
+      toast.success("Atendente atualizado.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar atendente."),
+  });
+  const deleteAttendantMutation = useMutation({
+    mutationFn: deleteStoreAttendant,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["store-attendants", store?.id] });
+      toast.success("Atendente removido.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao remover atendente."),
   });
   const profileMutation = useMutation({
     mutationFn: (payload: FormData) =>
@@ -188,7 +223,6 @@ function ConfigPage() {
         segment: String(payload.get("segment") || ""),
         city: String(payload.get("city") || ""),
         cnpj: String(payload.get("cnpj") || "") || null,
-        defaultCommissionPercent: Number(payload.get("defaultCommissionPercent") || 0),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["current-store"] });
@@ -239,16 +273,6 @@ function ConfigPage() {
               <Label>CNPJ</Label>
               <Input name="cnpj" defaultValue={store.cnpj || ""} />
             </div>
-            <Field label="Comissao inicial (%)">
-              <Input
-                name="defaultCommissionPercent"
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                defaultValue={store.defaultCommissionPercent}
-              />
-            </Field>
             <div className="md:col-span-2 flex justify-end">
               <Button type="submit" size="sm" className="gap-2" disabled={mutation.isPending}>
                 <Save className="h-4 w-4" /> {mutation.isPending ? "Salvando..." : "Salvar"}
@@ -343,6 +367,126 @@ function ConfigPage() {
       </Card>
 
       {canManageTeam && (
+        <>
+        <Card className="shadow-none">
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">Atendentes de venda</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <form
+              className="grid grid-cols-1 md:grid-cols-[1fr_150px_auto] gap-3 items-end"
+              onSubmit={(event) => {
+                event.preventDefault();
+                createAttendantMutation.mutate(new FormData(event.currentTarget));
+                event.currentTarget.reset();
+              }}
+            >
+              <Field label="Nome do atendente">
+                <Input name="name" placeholder="Ex: Israel" required />
+              </Field>
+              <Field label="Comissao (%)">
+                <Input
+                  name="commissionPercent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  defaultValue={store.defaultCommissionPercent || 1}
+                  required
+                />
+              </Field>
+              <Button
+                type="submit"
+                size="sm"
+                className="gap-2"
+                disabled={createAttendantMutation.isPending}
+              >
+                <Plus className="h-4 w-4" />
+                {createAttendantMutation.isPending ? "Adicionando..." : "Adicionar"}
+              </Button>
+            </form>
+
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+                  <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
+                    <th>Atendente</th>
+                    <th className="w-[150px]">Comissao</th>
+                    <th className="w-[80px] text-right">Acao</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attendants.map((attendant) => (
+                    <tr key={attendant.id} className="border-b border-border last:border-0">
+                      <td className="px-3 py-2.5">
+                        <Input
+                          defaultValue={attendant.name}
+                          className="h-8"
+                          disabled={updateAttendantMutation.isPending}
+                          onBlur={(event) => {
+                            const name = event.currentTarget.value.trim();
+                            if (name && name !== attendant.name) {
+                              updateAttendantMutation.mutate({
+                                id: attendant.id,
+                                name,
+                                commissionPercent: attendant.commissionPercent,
+                              });
+                            }
+                          }}
+                        />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          defaultValue={attendant.commissionPercent}
+                          className="h-8"
+                          disabled={updateAttendantMutation.isPending}
+                          onBlur={(event) => {
+                            const commissionPercent = Number(event.currentTarget.value || 0);
+                            if (commissionPercent !== attendant.commissionPercent) {
+                              updateAttendantMutation.mutate({
+                                id: attendant.id,
+                                name: attendant.name,
+                                commissionPercent,
+                              });
+                            }
+                          }}
+                        />
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          disabled={deleteAttendantMutation.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Excluir o atendente "${attendant.name}"?`)) {
+                              deleteAttendantMutation.mutate(attendant.id);
+                            }
+                          }}
+                          aria-label="Excluir atendente de venda"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!attendants.length && (
+                    <tr>
+                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={3}>
+                        Nenhum atendente cadastrado.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="shadow-none">
           <CardHeader>
             <CardTitle className="text-sm font-semibold">Equipe da loja</CardTitle>
@@ -361,7 +505,7 @@ function ConfigPage() {
             </div>
 
             <form
-              className="grid grid-cols-1 md:grid-cols-[1fr_1fr_150px_120px_130px_auto] gap-3 items-end"
+              className="grid grid-cols-1 md:grid-cols-[1fr_1fr_150px_130px_auto] gap-3 items-end"
               onSubmit={(event) => {
                 event.preventDefault();
                 createMemberMutation.mutate(new FormData(event.currentTarget));
@@ -375,16 +519,6 @@ function ConfigPage() {
               </Field>
               <Field label="Senha inicial">
                 <Input name="password" type="password" autoComplete="new-password" required />
-              </Field>
-              <Field label="Comissao (%)">
-                <Input
-                  name="commissionPercent"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  defaultValue={store.defaultCommissionPercent}
-                />
               </Field>
               <Field label="Role">
                 <Select name="role" defaultValue="atendente">
@@ -418,7 +552,6 @@ function ConfigPage() {
                     <th>Usuario</th>
                     <th>E-mail</th>
                     <th className="w-[170px]">Role</th>
-                    <th className="w-[150px]">Comissao</th>
                     <th className="w-[80px] text-right">Acao</th>
                   </tr>
                 </thead>
@@ -434,7 +567,6 @@ function ConfigPage() {
                             updateMemberMutation.mutate({
                               memberId: member.id,
                               role: role as StoreMemberRole,
-                              commissionPercent: member.commissionPercent,
                             })
                           }
                           disabled={updateMemberMutation.isPending}
@@ -447,24 +579,6 @@ function ConfigPage() {
                             <SelectItem value="atendente">Atendente</SelectItem>
                           </SelectContent>
                         </Select>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.1"
-                          defaultValue={member.commissionPercent}
-                          className="h-8"
-                          disabled={updateMemberMutation.isPending}
-                          onBlur={(event) =>
-                            updateMemberMutation.mutate({
-                              memberId: member.id,
-                              role: member.role,
-                              commissionPercent: Number(event.currentTarget.value || 0),
-                            })
-                          }
-                        />
                       </td>
                       <td className="px-3 py-2.5 text-right">
                         <Button
@@ -486,7 +600,7 @@ function ConfigPage() {
                   ))}
                   {!team?.members.length && (
                     <tr>
-                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={5}>
+                      <td className="px-3 py-8 text-center text-muted-foreground" colSpan={4}>
                         Nenhum usuario carregado.
                       </td>
                     </tr>
@@ -496,6 +610,7 @@ function ConfigPage() {
             </div>
           </CardContent>
         </Card>
+        </>
       )}
 
       {isOwner && <PlansCard plans={plans} />}
