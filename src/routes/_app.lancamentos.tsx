@@ -183,7 +183,8 @@ function LancamentosPage() {
 
   if (!store)
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
-  const canManageEntries = store.memberRole !== "atendente";
+  const canManageEntries = true;
+  const canManageAttachments = store.memberRole !== "atendente";
 
   function openCreate(type: EntryType) {
     setEditing(null);
@@ -260,6 +261,7 @@ function LancamentosPage() {
           }}
           onDelete={setDeleting}
           onAttachments={setAttachmentEntry}
+          canManageAttachments={canManageAttachments}
         />
         <EntriesTable
           title="Despesas"
@@ -275,6 +277,7 @@ function LancamentosPage() {
           }}
           onDelete={setDeleting}
           onAttachments={setAttachmentEntry}
+          canManageAttachments={canManageAttachments}
         />
       </div>
 
@@ -330,6 +333,7 @@ function EntriesTable({
   isLoading,
   onAdd,
   canManage,
+  canManageAttachments,
   onEdit,
   onDelete,
   onAttachments,
@@ -340,6 +344,7 @@ function EntriesTable({
   isLoading: boolean;
   onAdd: () => void;
   canManage: boolean;
+  canManageAttachments: boolean;
   onEdit: (entry: Entry) => void;
   onDelete: (entry: Entry) => void;
   onAttachments: (entry: Entry) => void;
@@ -416,15 +421,17 @@ function EntriesTable({
                     {canManage && (
                       <td className="px-3 py-2.5">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => onAttachments(entry)}
-                            aria-label="Comprovantes"
-                          >
-                            <Paperclip className="h-3.5 w-3.5" />
-                          </Button>
+                          {canManageAttachments && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => onAttachments(entry)}
+                              aria-label="Comprovantes"
+                            >
+                              <Paperclip className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
