@@ -395,11 +395,8 @@ function EntriesTable({
                       {entry.description || "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
-                      {entry.type === "receita" ? formatBRLPrecise(entry.amount) : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
-                      {entry.type === "receita" && entry.saleTotalAmount
-                        ? formatBRLPrecise(entry.saleTotalAmount)
+                      {entry.type === "receita" && entry.downPaymentAmount
+                        ? formatBRLPrecise(entry.downPaymentAmount)
                         : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
@@ -413,7 +410,8 @@ function EntriesTable({
                         entry.type === "receita" ? "text-success" : "text-destructive",
                       )}
                     >
-                      {entry.type === "receita" ? "+" : "-"} {formatBRLPrecise(entry.amount)}
+                      {entry.type === "receita" ? "+" : "-"}{" "}
+                      {formatBRLPrecise(entry.saleTotalAmount ?? entry.amount)}
                     </td>
                     {canManage && (
                       <td className="px-3 py-2.5">
