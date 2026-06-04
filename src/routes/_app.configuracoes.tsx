@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
 import { ImageUp, Plus, Save, Trash2, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -49,6 +50,7 @@ export const Route = createFileRoute("/_app/configuracoes")({
 function ConfigPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
+  const [newCategoryType, setNewCategoryType] = useState<EntryType>("receita");
   const { data: store } = useQuery({
     queryKey: ["current-store", session?.profile.id],
     queryFn: () => getCurrentStore(session!.profile),
@@ -172,6 +174,20 @@ function ConfigPage() {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao atualizar preferencia."),
   });
+  const notificationMutation = useMutation({
+    mutationFn: (input: {
+      revenueGoalAlertEnabled?: boolean;
+      expenseGoalAlertEnabled?: boolean;
+      employeeCommissionsEnabled?: boolean;
+    }) => updateStore(store!.id, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["current-store"] });
+      queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
+      toast.success("Preferencia atualizada.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao atualizar preferencia."),
+  });
   const logoMutation = useMutation({
     mutationFn: (payload: FormData) => {
       const file = payload.get("logo");
@@ -196,7 +212,7 @@ function ConfigPage() {
     mutationFn: (payload: FormData) =>
       createStoreCategory({
         storeId: store!.id,
-        type: String(payload.get("type") || "receita") as EntryType,
+        type: newCategoryType,
         name: String(payload.get("name") || ""),
       }),
     onSuccess: () => {
@@ -306,7 +322,10 @@ function ConfigPage() {
             }}
           >
             <Field label="Tipo">
-              <Select name="type" defaultValue="receita">
+              <Select
+                value={newCategoryType}
+                onValueChange={(value) => setNewCategoryType(value as EntryType)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -687,6 +706,16 @@ function ConfigPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <ToggleRow
+            label="Exibir comissoes por funcionario"
+            hint="Liga o ranking de receita por funcionario com comissoes no dashboard."
+            checked={store.employeeCommissionsEnabled !== false}
+            onCheckedChange={(checked) =>
+              notificationMutation.mutate({ employeeCommissionsEnabled: checked })
+            }
+            disabled={notificationMutation.isPending}
+          />
+          <Separator />
+          <ToggleRow
             label="Alerta diario de fechamento"
             hint={
               capabilities.dailyWhatsappSummary
@@ -695,7 +724,7 @@ function ConfigPage() {
             }
             checked={Boolean(store.dailyClosingWhatsappEnabled)}
             onCheckedChange={(checked) => dailyClosingMutation.mutate(checked)}
-            disabled={!capabilities.dailyWhatsappSummary}
+            disabled={!capabilities.dailyWhatsappSummary || dailyClosingMutation.isPending}
           />
           <Separator />
           <ToggleRow
@@ -705,8 +734,11 @@ function ConfigPage() {
                 ? "Notifica quando a meta do mes nao esta no ritmo."
                 : "Disponivel a partir do plano Essencial."
             }
-            defaultChecked={capabilities.alerts}
-            disabled={!capabilities.alerts}
+            checked={store.revenueGoalAlertEnabled !== false}
+            onCheckedChange={(checked) =>
+              notificationMutation.mutate({ revenueGoalAlertEnabled: checked })
+            }
+            disabled={!capabilities.alerts || notificationMutation.isPending}
           />
           <Separator />
           <ToggleRow
@@ -716,7 +748,11 @@ function ConfigPage() {
                 ? "Alerta quando despesas superam 85% do limite."
                 : "Disponivel a partir do plano Essencial."
             }
-            disabled={!capabilities.alerts}
+            checked={store.expenseGoalAlertEnabled !== false}
+            onCheckedChange={(checked) =>
+              notificationMutation.mutate({ expenseGoalAlertEnabled: checked })
+            }
+            disabled={!capabilities.alerts || notificationMutation.isPending}
           />
         </CardContent>
       </Card>

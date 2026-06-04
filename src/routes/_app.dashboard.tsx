@@ -119,6 +119,7 @@ function DashboardPage() {
   const profit = revenue - expenses;
   const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
   const capabilities = getPlanCapabilities(store.plan);
+  const showEmployeeCommissions = store.employeeCommissionsEnabled !== false;
   const sales = currentEntries.filter((entry) => entry.type === "receita");
   const ticket = sales.length ? revenue / sales.length : 0;
   const prevRevenue = sumBy(previousEntries, "receita") || 1;
@@ -126,17 +127,15 @@ function DashboardPage() {
   const goalProgress = goals.revenue ? (revenue / goals.revenue) * 100 : 0;
   const isAttendant = store.memberRole === "atendente";
 
-  const dailyData = currentEntries.reduce<Array<{ day: string; receita: number; despesa: number }>>(
-    (items, entry) => {
-      const day = format(parseISO(entry.date), "dd/MM");
-      const item = items.find((row) => row.day === day) || { day, receita: 0, despesa: 0 };
-      if (!items.includes(item)) items.push(item);
-      if (entry.type === "receita") item.receita += entry.amount;
-      else item.despesa += entry.amount;
-      return items;
-    },
-    [],
-  );
+  const weeklyRevenueData = Array.from({ length: 7 }).map((_, index) => {
+    const day = new Date(today);
+    day.setDate(today.getDate() + index);
+    const dayEntries = currentEntries.filter((entry) => isSameDay(parseISO(entry.date), day));
+    return {
+      day: format(day, "EEE dd/MM", { locale: ptBR }),
+      receita: sumBy(dayEntries, "receita"),
+    };
+  });
 
   const expensesByCat = currentEntries
     .filter((entry) => entry.type === "despesa")
@@ -183,10 +182,10 @@ function DashboardPage() {
   const todayRevenue = sumBy(todayEntries, "receita");
   const todayExpenses = sumBy(todayEntries, "despesa");
   const todayProfit = todayRevenue - todayExpenses;
-  const topExpense = expensesByCat[0];
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const expectedRevenue = goals.revenue > 0 ? goals.revenue * (today.getDate() / daysInMonth) : 0;
   const alerts = buildAlerts({ margin, goalProgress, expenses, goals, today });
+  const expenseTicks = buildExpenseTicks(expensesByCat.map((item) => item.valor));
 
   if (isAttendant) {
     const weekDays = Array.from({ length: 7 }).map((_, index) => subDays(today, 6 - index));
@@ -348,22 +347,16 @@ function DashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <RoutineCard
-          title="Fechamento do dia"
-          value={formatBRL(todayProfit)}
-          detail={`${formatBRL(todayRevenue)} entrou e ${formatBRL(todayExpenses)} saiu hoje.`}
-          tone={todayProfit >= 0 ? "success" : "danger"}
-        />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <RoutineCard
           title="Despesa que mais pesou"
-          value={topExpense ? topExpense.categoria : "Sem despesa"}
+          value={expensesByCat[0] ? expensesByCat[0].categoria : "Sem despesa"}
           detail={
-            topExpense
-              ? `${formatBRL(topExpense.valor)} no mes atual.`
+            expensesByCat[0]
+              ? `${formatBRL(expensesByCat[0].valor)} no mes atual.`
               : "Nenhuma despesa lancada neste mes."
           }
-          tone={topExpense ? "warning" : "neutral"}
+          tone={expensesByCat[0] ? "warning" : "neutral"}
         />
         <RoutineCard
           title="Ritmo da meta"
@@ -377,86 +370,88 @@ function DashboardPage() {
         />
       </div>
 
-      <Card className="shadow-none">
-        <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
-          <div>
-            <CardTitle className="text-sm font-semibold">Receita por funcionario</CardTitle>
-            <div className="text-xs text-muted-foreground">
-              {topSalesperson
-                ? `Melhor resultado: ${topSalesperson.funcionario} com ${formatBRL(topSalesperson.receita)}.`
-                : "Informe o responsavel nas receitas para ver o ranking."}
+      {showEmployeeCommissions && (
+        <Card className="shadow-none">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
+            <div>
+              <CardTitle className="text-sm font-semibold">Receita por funcionario</CardTitle>
+              <div className="text-xs text-muted-foreground">
+                {topSalesperson
+                  ? `Melhor resultado: ${topSalesperson.funcionario} com ${formatBRL(topSalesperson.receita)}.`
+                  : "Informe o responsavel nas receitas para ver o ranking."}
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Select value={selectedSalesperson} onValueChange={setSelectedSalesperson}>
-              <SelectTrigger className="h-8 w-[190px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos funcionarios</SelectItem>
-                {salespeople.map((name) => (
-                  <SelectItem key={name} value={name}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSelectedSalesperson("todos")}
-              disabled={selectedSalesperson === "todos"}
-            >
-              Lista
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="h-[260px] pl-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={revenueBySalesperson} margin={{ left: 16, right: 16, top: 8 }}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="oklch(0.91 0.008 247)"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="funcionario"
-                tick={{ fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                tick={{ fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(value) => `R$${(Number(value) / 1000).toFixed(0)}k`}
-              />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar
-                dataKey="receita"
-                name="Receita"
-                fill="oklch(0.58 0.13 155)"
-                radius={[4, 4, 0, 0]}
-              />
-              <Bar
-                dataKey="comissao"
-                name="Comissao"
-                fill="oklch(0.64 0.17 65)"
-                radius={[4, 4, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+            <div className="flex items-center gap-2">
+              <Select value={selectedSalesperson} onValueChange={setSelectedSalesperson}>
+                <SelectTrigger className="h-8 w-[190px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos funcionarios</SelectItem>
+                  {salespeople.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedSalesperson("todos")}
+                disabled={selectedSalesperson === "todos"}
+              >
+                Lista
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="h-[260px] pl-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={revenueBySalesperson} margin={{ left: 16, right: 16, top: 8 }}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="oklch(0.91 0.008 247)"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="funcionario"
+                  tick={{ fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value) => `R$${(Number(value) / 1000).toFixed(0)}k`}
+                />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar
+                  dataKey="receita"
+                  name="Receita"
+                  fill="oklch(0.58 0.13 155)"
+                  radius={[4, 4, 0, 0]}
+                />
+                <Bar
+                  dataKey="comissao"
+                  name="Comissao"
+                  fill="oklch(0.64 0.17 65)"
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <Card className="xl:col-span-2 shadow-none">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Faturamento diário</CardTitle>
+            <CardTitle className="text-sm font-semibold">Faturamento semanal</CardTitle>
           </CardHeader>
           <CardContent className="h-[280px] pl-0">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dailyData} margin={{ left: 8, right: 12, top: 8 }}>
+              <AreaChart data={weeklyRevenueData} margin={{ left: 8, right: 12, top: 8 }}>
                 <CartesianGrid
                   strokeDasharray="3 3"
                   stroke="oklch(0.91 0.008 247)"
@@ -504,7 +499,8 @@ function DashboardPage() {
                   tick={{ fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(value) => `R$${(Number(value) / 1000).toFixed(0)}k`}
+                  ticks={expenseTicks}
+                  tickFormatter={(value) => formatCompactNumber(Number(value))}
                 />
                 <YAxis
                   type="category"
@@ -676,6 +672,20 @@ function buildAlerts({
   return alerts.length
     ? alerts
     : [{ type: "info", text: "Tudo dentro do esperado para o período." }];
+}
+
+function buildExpenseTicks(values: number[]) {
+  const max = Math.max(...values, 0);
+  if (max <= 1000) return [0, 100, 250, 500, 750, 1000];
+  if (max <= 5000) return [0, 1000, 2000, 3000, 5000];
+  if (max <= 20000) return [0, 5000, 10000, 15000, 20000];
+  if (max <= 100000) return [0, 10000, 20000, 50000, 70000, 90000];
+  return [0, 100000, 250000, 500000, 750000, 1000000];
+}
+
+function formatCompactNumber(value: number) {
+  if (value >= 1000) return `${Number(value / 1000).toLocaleString("pt-BR")}k`;
+  return String(value);
 }
 
 function TodayRow({

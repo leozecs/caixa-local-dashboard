@@ -520,6 +520,9 @@ function EntryModal({
   const [commissionPercent, setCommissionPercent] = useState(
     String(entry?.commissionPercent ?? defaultCommissionPercent),
   );
+  const [applyCommission, setApplyCommission] = useState(
+    Boolean(entry?.salespersonName || entry?.commissionPercent),
+  );
   const [isRecurring, setIsRecurring] = useState(Boolean(entry?.isRecurring));
   const findSalesperson = useCallback(
     (value: string) =>
@@ -544,10 +547,11 @@ function EntryModal({
     setPaymentMethod(entry?.paymentMethod || "Pix");
     setAmount(entry?.amount ? String(entry.amount) : "");
     const matched = entry?.salespersonName ? findSalesperson(entry.salespersonName) : null;
-    setSalespersonName(matched?.name || "");
+    setSalespersonName(entry?.salespersonName || matched?.name || "");
     setCommissionPercent(
       String(entry?.commissionPercent ?? matched?.commissionPercent ?? defaultCommissionPercent),
     );
+    setApplyCommission(Boolean(entry?.salespersonName || entry?.commissionPercent));
     setIsRecurring(Boolean(entry?.isRecurring));
   }, [
     entry,
@@ -582,8 +586,9 @@ function EntryModal({
               description,
               paymentMethod,
               amount: Number(amount),
-              salespersonName,
-              commissionPercent: type === "receita" ? Number(commissionPercent) : null,
+              salespersonName: type === "receita" && applyCommission ? salespersonName : null,
+              commissionPercent:
+                type === "receita" && applyCommission ? Number(commissionPercent) : null,
               isRecurring,
             });
           }}
@@ -630,34 +635,70 @@ function EntryModal({
             </Select>
           </Field>
           {type === "receita" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Responsavel pela venda">
-                <Select
-                  value={findSalesperson(salespersonName)?.id || ""}
-                  onValueChange={updateSalesperson}
-                  disabled={!attendants.length}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        attendants.length
-                          ? "Selecione o atendente"
-                          : "Cadastre um atendente em Configuracoes"
-                      }
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={applyCommission}
+                  onCheckedChange={(checked) => setApplyCommission(checked === true)}
+                />
+                Calcular comissao deste lancamento
+              </label>
+              {applyCommission && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Field label="Responsavel pela venda">
+                    {attendants.length ? (
+                      <Select
+                        value={findSalesperson(salespersonName)?.id || "manual"}
+                        onValueChange={(value) => {
+                          if (value === "manual") {
+                            setSalespersonName("");
+                            setCommissionPercent(String(defaultCommissionPercent));
+                            return;
+                          }
+                          updateSalesperson(value);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o atendente" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="manual">Informar manualmente</SelectItem>
+                          {attendants.map((attendant) => (
+                            <SelectItem key={attendant.id} value={attendant.id}>
+                              {attendant.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={salespersonName}
+                        onChange={(event) => setSalespersonName(event.target.value)}
+                        placeholder="Nome do responsavel"
+                      />
+                    )}
+                  </Field>
+                  <Field label="Comissao (%)">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={commissionPercent}
+                      onChange={(event) => setCommissionPercent(event.target.value)}
                     />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {attendants.map((attendant) => (
-                      <SelectItem key={attendant.id} value={attendant.id}>
-                        {attendant.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Comissao (%)">
-                <Input type="number" value={commissionPercent} readOnly className="bg-muted" />
-              </Field>
+                  </Field>
+                  {attendants.length > 0 && !findSalesperson(salespersonName) && (
+                    <div className="md:col-span-2">
+                      <Input
+                        value={salespersonName}
+                        onChange={(event) => setSalespersonName(event.target.value)}
+                        placeholder="Nome manual do responsavel"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
           <Field label="Descricao">
@@ -709,7 +750,11 @@ function EntryModal({
             </Button>
             <Button
               type="submit"
-              disabled={pending || Number(amount) <= 0 || (type === "receita" && !salespersonName)}
+              disabled={
+                pending ||
+                Number(amount) <= 0 ||
+                (type === "receita" && applyCommission && !salespersonName.trim())
+              }
             >
               {pending ? "Salvando..." : "Salvar"}
             </Button>

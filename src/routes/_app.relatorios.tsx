@@ -302,9 +302,9 @@ function RelatoriosPage() {
               className="hidden"
               accept={
                 importKind === "excel"
-                  ? ".xlsx,.xls,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                  ? ".xlsx,.xls,.csv,.txt,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain"
                   : importKind === "conciliacao"
-                    ? ".xlsx,.xls,.csv,.pdf,application/pdf,text/csv"
+                    ? ".xlsx,.xls,.csv,.txt,.pdf,application/pdf,text/csv,text/plain"
                     : ".pdf,application/pdf"
               }
               onChange={(event) => handleImport(event.target.files)}

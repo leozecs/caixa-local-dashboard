@@ -27,6 +27,7 @@ export type ReconciliationRow = ImportedEntry & {
 };
 
 const DATE_HEADERS = ["data", "date", "dia", "emissao", "lancamento", "competencia"];
+const MONTH_HEADERS = ["mes", "mês", "month", "competencia", "competência", "periodo", "período"];
 const TYPE_HEADERS = ["tipo", "type", "entrada/saida", "movimento", "natureza"];
 const CATEGORY_HEADERS = ["categoria", "category", "grupo", "classificacao"];
 const DESCRIPTION_HEADERS = [
@@ -39,6 +40,8 @@ const DESCRIPTION_HEADERS = [
 ];
 const PAYMENT_HEADERS = ["pagamento", "forma", "forma de pagamento", "payment", "metodo", "método"];
 const AMOUNT_HEADERS = ["valor", "amount", "total", "preco", "preço", "entrada", "saida", "saída"];
+const REVENUE_HEADERS = ["faturamento", "receita", "receitas", "entrada", "entradas", "vendas"];
+const EXPENSE_HEADERS = ["despesas", "despesa", "saida", "saída", "saidas", "saídas", "gastos"];
 
 const PAYMENT_METHODS: PaymentMethod[] = ["Pix", "Cartão", "Dinheiro", "Boleto", "Transferência"];
 
@@ -66,15 +69,31 @@ export function reconcileImportedEntries(imported: ImportedEntry[], existing: En
 async function parseWorkbook(file: File) {
   const sheetRows = await readSheet(file);
   const headers = (sheetRows[0] || []).map((header) => String(header || ""));
+  if (!headers.some((header) => normalizeKey(header))) {
+    return sheetRows
+      .map((cells) => parseTextLine(cells.map((cell) => String(cell || "")).join(" "), file.name))
+      .filter((item): item is ImportedEntry => Boolean(item));
+  }
   const rows = sheetRows
     .slice(1)
     .map((cells) =>
       Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])),
     );
-  return rowsToImportedEntries(rows, file.name);
+  const imported = rowsToImportedEntries(rows, file.name);
+  if (imported.length) return imported;
+
+  return sheetRows
+    .map((cells) => parseTextLine(cells.map((cell) => String(cell || "")).join(" "), file.name))
+    .filter((item): item is ImportedEntry => Boolean(item));
 }
 
 function parseDelimited(text: string, source: string) {
+  const parsedFromLines = text
+    .split(/\r?\n/)
+    .map((line) => parseTextLine(line, source))
+    .filter((item): item is ImportedEntry => Boolean(item));
+  if (parsedFromLines.length) return parsedFromLines;
+
   const delimiter = text.includes(";") ? ";" : text.includes("\t") ? "\t" : ",";
   const rows = parseDelimitedRows(text, delimiter);
   return rowsToImportedEntries(rows, source);
@@ -82,6 +101,10 @@ function parseDelimited(text: string, source: string) {
 
 async function parsePdf(file: File) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/legacy/build/pdf.worker.mjs",
+    import.meta.url,
+  ).toString();
   const pdf = await pdfjs.getDocument({
     data: new Uint8Array(await file.arrayBuffer()),
     disableWorker: true,
@@ -96,23 +119,24 @@ async function parsePdf(file: File) {
   }
 
   return lines
-    .map((line) => parsePdfLine(line, file.name))
+    .map((line) => parseTextLine(line, file.name))
     .filter((item): item is ImportedEntry => Boolean(item));
 }
 
-function parsePdfLine(line: string, source: string): ImportedEntry | null {
+function parseTextLine(line: string, source: string): ImportedEntry | null {
   const dateMatch = line.match(/\b(\d{2}\/\d{2}\/\d{2,4}|\d{4}-\d{2}-\d{2})\b/);
-  const amountMatch = line.match(
-    /(-?\s?R?\$?\s?\d{1,3}(?:\.\d{3})*,\d{2}|-?\s?\d+\.\d{2})\b(?!.*\d)/,
+  const amountMatches = line.match(
+    /-?\s?R?\$?\s?\d{1,3}(?:\.\d{3})*(?:,\d{2})?|-?\s?R?\$?\s?\d+(?:[.,]\d{2})?/g,
   );
-  if (!dateMatch || !amountMatch) return null;
+  const amountText = amountMatches?.at(-1);
+  if (!dateMatch || !amountText) return null;
 
-  const amount = parseAmount(amountMatch[0]);
+  const amount = parseAmount(amountText);
   if (!amount) return null;
 
   const description = line
     .replace(dateMatch[0], "")
-    .replace(amountMatch[0], "")
+    .replace(amountText, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -129,8 +153,47 @@ function parsePdfLine(line: string, source: string): ImportedEntry | null {
 
 function rowsToImportedEntries(rows: Record<string, unknown>[], source: string) {
   return rows
-    .map((row) => normalizeImportedEntry(row, source))
+    .flatMap((row) => normalizeImportedEntriesFromRow(row, source))
     .filter((item): item is ImportedEntry => Boolean(item));
+}
+
+function normalizeImportedEntriesFromRow(row: Record<string, unknown>, source: string) {
+  const normalized = Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [normalizeKey(key), value]),
+  );
+  const dateValue = findValue(normalized, DATE_HEADERS) || findValue(normalized, MONTH_HEADERS);
+  const parsedDate = parseDate(dateValue);
+  const revenueAmount = parseAmount(findValue(normalized, REVENUE_HEADERS));
+  const expenseAmount = parseAmount(findValue(normalized, EXPENSE_HEADERS));
+
+  if (parsedDate && (revenueAmount || expenseAmount) && !findValue(normalized, AMOUNT_HEADERS)) {
+    const rows: ImportedEntry[] = [];
+    if (revenueAmount) {
+      rows.push({
+        date: parsedDate,
+        type: "receita",
+        category: "Vendas",
+        description: "Faturamento importado",
+        paymentMethod: "Pix",
+        amount: Math.abs(revenueAmount),
+        source,
+      });
+    }
+    if (expenseAmount) {
+      rows.push({
+        date: parsedDate,
+        type: "despesa",
+        category: "Outros",
+        description: "Despesas importadas",
+        paymentMethod: "Pix",
+        amount: Math.abs(expenseAmount),
+        source,
+      });
+    }
+    return rows;
+  }
+
+  return [normalizeImportedEntry(row, source)];
 }
 
 function normalizeImportedEntry(
@@ -140,7 +203,7 @@ function normalizeImportedEntry(
   const normalized = Object.fromEntries(
     Object.entries(row).map(([key, value]) => [normalizeKey(key), value]),
   );
-  const dateValue = findValue(normalized, DATE_HEADERS);
+  const dateValue = findValue(normalized, DATE_HEADERS) || findValue(normalized, MONTH_HEADERS);
   const amountValue = findValue(normalized, AMOUNT_HEADERS);
   const parsedDate = parseDate(dateValue);
   const parsedAmount = parseAmount(amountValue);
@@ -224,6 +287,8 @@ function parseDate(value: unknown) {
 
   const text = String(value || "").trim();
   if (!text) return null;
+  const monthDate = parseMonthDate(text);
+  if (monthDate) return monthDate;
   const formats = ["yyyy-MM-dd", "dd/MM/yyyy", "dd/MM/yy", "dd-MM-yyyy", "dd.MM.yyyy"];
   for (const pattern of formats) {
     const parsed = parse(text, pattern, new Date());
@@ -232,6 +297,47 @@ function parseDate(value: unknown) {
 
   const iso = parseISO(text);
   return isValid(iso) ? format(iso, "yyyy-MM-dd") : null;
+}
+
+function parseMonthDate(value: string) {
+  const text = normalizeKey(value).replace(/\s+de\s+/g, "/").replace(/\s+/g, "/");
+  const monthMap: Record<string, number> = {
+    jan: 0,
+    janeiro: 0,
+    fev: 1,
+    fevereiro: 1,
+    mar: 2,
+    marco: 2,
+    abr: 3,
+    abril: 3,
+    mai: 4,
+    maio: 4,
+    jun: 5,
+    junho: 5,
+    jul: 6,
+    julho: 6,
+    ago: 7,
+    agosto: 7,
+    set: 8,
+    setembro: 8,
+    out: 9,
+    outubro: 9,
+    nov: 10,
+    novembro: 10,
+    dez: 11,
+    dezembro: 11,
+  };
+  const match = text.match(
+    /\b(jan(?:eiro)?|fev(?:ereiro)?|mar(?:co)?|abr(?:il)?|mai(?:o)?|jun(?:ho)?|jul(?:ho)?|ago(?:sto)?|set(?:embro)?|out(?:ubro)?|nov(?:embro)?|dez(?:embro)?)(?:\/|-)?(\d{2,4})?\b/,
+  );
+  if (!match) return null;
+  const yearText = match[2];
+  const currentYear = new Date().getFullYear();
+  const year = yearText
+    ? Number(yearText.length === 2 ? `20${yearText}` : yearText)
+    : currentYear;
+  const parsed = new Date(Date.UTC(year, monthMap[match[1]], 1));
+  return isValid(parsed) ? format(parsed, "yyyy-MM-dd") : null;
 }
 
 function parseAmount(value: unknown) {

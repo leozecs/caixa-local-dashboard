@@ -43,6 +43,9 @@ export interface Store {
   city: string;
   cnpj?: string | null;
   dailyClosingWhatsappEnabled?: boolean;
+  revenueGoalAlertEnabled?: boolean;
+  expenseGoalAlertEnabled?: boolean;
+  employeeCommissionsEnabled?: boolean;
   memberRole?: StoreMemberRole;
   logoPath?: string | null;
   logoUrl?: string | null;
@@ -158,8 +161,8 @@ export interface AdminAiInsight {
 
 export interface StoreOperationalAlert {
   id: string;
-  type: "margin" | "revenue_goal" | "expense_goal";
-  severity: "atencao" | "critico";
+  type: "daily_closing" | "margin" | "revenue_goal" | "expense_goal";
+  severity: "info" | "atencao" | "critico";
   title: string;
   message: string;
 }
@@ -210,6 +213,9 @@ type StoreRow = {
   city: string;
   cnpj: string | null;
   daily_closing_whatsapp_enabled?: boolean | null;
+  revenue_goal_alert_enabled?: boolean | null;
+  expense_goal_alert_enabled?: boolean | null;
+  employee_commissions_enabled?: boolean | null;
   logo_path?: string | null;
   default_commission_percent?: number | null;
   created_at: string;
@@ -825,6 +831,15 @@ export async function updateStore(id: string, input: Partial<Store>) {
   if (input.cnpj !== undefined) payload.cnpj = input.cnpj;
   if (input.dailyClosingWhatsappEnabled !== undefined) {
     payload.daily_closing_whatsapp_enabled = input.dailyClosingWhatsappEnabled;
+  }
+  if (input.revenueGoalAlertEnabled !== undefined) {
+    payload.revenue_goal_alert_enabled = input.revenueGoalAlertEnabled;
+  }
+  if (input.expenseGoalAlertEnabled !== undefined) {
+    payload.expense_goal_alert_enabled = input.expenseGoalAlertEnabled;
+  }
+  if (input.employeeCommissionsEnabled !== undefined) {
+    payload.employee_commissions_enabled = input.employeeCommissionsEnabled;
   }
   if (input.logoPath !== undefined) payload.logo_path = input.logoPath;
   if (input.defaultCommissionPercent !== undefined) {
@@ -1647,6 +1662,29 @@ export async function listStoreOperationalAlerts(
   const profit = revenue - expenses;
   const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
   const alerts: StoreOperationalAlert[] = [];
+  const today = new Date();
+  const selectedMonthStart = startOfMonth(month);
+  const currentMonthStart = startOfMonth(today);
+  const daysInMonth = endOfMonth(month).getDate();
+  const elapsedDays =
+    selectedMonthStart.getTime() === currentMonthStart.getTime()
+      ? Math.min(today.getDate(), daysInMonth)
+      : daysInMonth;
+  const todayKey = today.toISOString().slice(0, 10);
+  const todayEntries = entries.filter((entry) => entry.date === todayKey);
+  const todayRevenue = sumEntries(todayEntries, "receita");
+  const todayExpenses = sumEntries(todayEntries, "despesa");
+  const todayProfit = todayRevenue - todayExpenses;
+
+  if (store.dailyClosingWhatsappEnabled) {
+    alerts.push({
+      id: "daily-closing",
+      type: "daily_closing",
+      severity: todayProfit < 0 ? "atencao" : "info",
+      title: "Fechamento do dia",
+      message: `${formatBRL(todayRevenue)} entrou, ${formatBRL(todayExpenses)} saiu e o saldo do dia ficou em ${formatBRL(todayProfit)}.`,
+    });
+  }
 
   if (goals.margin > 0 && revenue > 0 && margin < goals.margin) {
     alerts.push({
@@ -1658,29 +1696,33 @@ export async function listStoreOperationalAlerts(
     });
   }
 
-  if (goals.revenue > 0) {
-    const today = new Date();
-    const daysInMonth = endOfMonth(month).getDate();
-    const elapsedDays = Math.min(today.getDate(), daysInMonth);
+  if (store.revenueGoalAlertEnabled !== false && goals.revenue > 0) {
     const expectedRevenue = goals.revenue * (elapsedDays / daysInMonth);
     if (revenue < expectedRevenue * 0.85) {
+      const dailyTarget = goals.revenue / daysInMonth;
       alerts.push({
         id: "revenue-goal-behind",
         type: "revenue_goal",
         severity: revenue < expectedRevenue * 0.6 ? "critico" : "atencao",
         title: "Meta mensal abaixo do ritmo",
-        message: `Vendas do mes em ${formatBRL(revenue)}. Para cumprir a meta mensal, o ritmo esperado ate hoje seria ${formatBRL(expectedRevenue)}.`,
+        message: `Vendas do mes em ${formatBRL(revenue)}. Pelo ritmo diario de ${formatBRL(dailyTarget)}, o esperado ate o dia ${elapsedDays} seria ${formatBRL(expectedRevenue)}.`,
       });
     }
   }
 
-  if (goals.maxExpenses > 0 && expenses >= goals.maxExpenses * 0.85) {
+  if (store.expenseGoalAlertEnabled !== false && goals.maxExpenses > 0) {
+    const expectedExpenses = goals.maxExpenses * (elapsedDays / daysInMonth);
+    const projectedAlertLimit = expectedExpenses * 0.8;
+    const monthlyAlertLimit = goals.maxExpenses * 0.8;
+    const alertLimit = Math.min(projectedAlertLimit, monthlyAlertLimit);
+    if (expenses < alertLimit) return alerts;
+
     alerts.push({
       id: "expenses-near-limit",
       type: "expense_goal",
-      severity: expenses >= goals.maxExpenses ? "critico" : "atencao",
+      severity: expenses >= expectedExpenses ? "critico" : "atencao",
       title: "Despesas perto do limite",
-      message: `Despesas em ${formatBRL(expenses)} de um limite mensal de ${formatBRL(goals.maxExpenses)}.`,
+      message: `Despesas em ${formatBRL(expenses)}. Pelo limite mensal de ${formatBRL(goals.maxExpenses)}, o teto proporcional ate o dia ${elapsedDays} e ${formatBRL(expectedExpenses)}.`,
     });
   }
 
@@ -1762,6 +1804,9 @@ async function hydrateStore(row: StoreRow): Promise<Store> {
     city: row.city,
     cnpj: row.cnpj,
     dailyClosingWhatsappEnabled: Boolean(row.daily_closing_whatsapp_enabled),
+    revenueGoalAlertEnabled: row.revenue_goal_alert_enabled !== false,
+    expenseGoalAlertEnabled: row.expense_goal_alert_enabled !== false,
+    employeeCommissionsEnabled: row.employee_commissions_enabled !== false,
     logoPath: row.logo_path || null,
     logoUrl,
     defaultCommissionPercent: Number(row.default_commission_percent ?? 1),
