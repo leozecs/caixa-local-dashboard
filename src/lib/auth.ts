@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import type { Session as SupabaseSession, User } from "@supabase/supabase-js";
+import {
+  GENERIC_LOGIN_ERROR,
+  isValidEmail,
+  normalizeEmail,
+  validatePasswordStrength,
+} from "@/lib/security";
 import { requireSupabase, supabase } from "@/lib/supabase";
 
 export type UserRole = "owner" | "lojista";
@@ -178,9 +184,30 @@ export function useSession() {
 
 export async function signIn(email: string, password: string): Promise<Session> {
   const client = requireSupabase();
-  const { data, error } = await client.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-  if (!data.session) throw new Error("Não foi possível iniciar a sessão.");
+  const normalizedEmail = normalizeEmail(email);
+  if (!isValidEmail(normalizedEmail) || !password) throw new Error(GENERIC_LOGIN_ERROR);
+
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: normalizedEmail, password }),
+  });
+  const payload = (await response.json().catch(() => null)) as {
+    message?: string;
+    access_token?: string;
+    refresh_token?: string;
+  } | null;
+
+  if (!response.ok || !payload?.access_token || !payload.refresh_token) {
+    throw new Error(payload?.message || GENERIC_LOGIN_ERROR);
+  }
+
+  const { data, error } = await client.auth.setSession({
+    access_token: payload.access_token,
+    refresh_token: payload.refresh_token,
+  });
+  if (error) throw new Error(GENERIC_LOGIN_ERROR);
+  if (!data.session) throw new Error("Nao foi possivel iniciar a sessao.");
 
   const profile = await fetchProfile(data.session.user);
   return toSession(data.session, profile);
@@ -197,6 +224,8 @@ export async function requestPasswordReset(email: string) {
 
 export async function updatePassword(password: string) {
   const client = requireSupabase();
+  const strengthError = validatePasswordStrength(password);
+  if (strengthError) throw new Error(strengthError);
   const { error } = await client.auth.updateUser({ password });
   if (error) throw error;
 }

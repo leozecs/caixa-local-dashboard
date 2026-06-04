@@ -47,10 +47,29 @@ const EXPENSE_HEADERS = ["despesas", "despesa", "saida", "saída", "saidas", "sa
 const PAYMENT_METHODS: PaymentMethod[] = ["Pix", "Cartão", "Dinheiro", "Boleto", "Transferência"];
 
 export async function parseFinancialFile(file: File): Promise<ImportedEntry[]> {
-  const extension = file.name.split(".").pop()?.toLowerCase() || "";
-  if (extension === "xlsx" || extension === "xls") return parseWorkbook(file);
-  if (extension === "pdf") return parsePdf(file);
-  return parseDelimited(await file.text(), file.name);
+  if (!file.size) throw new Error("O arquivo esta vazio.");
+
+  try {
+    const extension = file.name.split(".").pop()?.toLowerCase() || "";
+    const rows =
+      extension === "xlsx" || extension === "xls"
+        ? await parseWorkbook(file)
+        : extension === "pdf"
+          ? await parsePdf(file)
+          : parseDelimited(await file.text(), file.name);
+
+    if (!rows.length) {
+      throw new Error(
+        "Nao encontrei colunas compativeis. Use data, valor ou colunas de faturamento, receitas e despesas.",
+      );
+    }
+
+    return rows;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Nao encontrei")) throw error;
+    if (error instanceof Error && error.message === "O arquivo esta vazio.") throw error;
+    throw new Error("Nao foi possivel ler este arquivo. Verifique se ele nao esta corrompido.");
+  }
 }
 
 export function reconcileImportedEntries(imported: ImportedEntry[], existing: Entry[]) {
@@ -109,7 +128,8 @@ function findHeaderRowIndex(sheetRows: unknown[][]) {
     return { index, score };
   });
 
-  return scored.sort((a, b) => b.score - a.score)[0]?.score ? scored[0].index : 0;
+  const bestMatch = scored.sort((a, b) => b.score - a.score)[0];
+  return bestMatch?.score ? bestMatch.index : 0;
 }
 
 function parseDelimited(text: string, source: string) {

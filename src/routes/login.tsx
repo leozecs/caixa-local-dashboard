@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { requestPasswordReset, signIn } from "@/lib/auth";
+import { GENERIC_LOGIN_ERROR, isValidEmail, normalizeEmail } from "@/lib/security";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Entrar | Caixa Local" }] }),
@@ -24,12 +25,19 @@ function LoginPage() {
     e.preventDefault();
     setError(null);
     setMessage(null);
+
+    const normalizedEmail = normalizeEmail(email);
+    if (!isValidEmail(normalizedEmail) || !password) {
+      setError(GENERIC_LOGIN_ERROR);
+      return;
+    }
+
     setLoading(true);
     try {
-      const session = await signIn(email, password);
+      const session = await signIn(normalizedEmail, password);
       navigate({ to: session.role === "owner" ? "/admin" : "/dashboard" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao entrar.");
+      setError(err instanceof Error ? err.message : GENERIC_LOGIN_ERROR);
     } finally {
       setLoading(false);
     }
@@ -39,8 +47,8 @@ function LoginPage() {
     setError(null);
     setMessage(null);
 
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
+    const trimmedEmail = normalizeEmail(email);
+    if (!isValidEmail(trimmedEmail)) {
       setError("Digite seu e-mail para receber o link de recuperação de senha.");
       return;
     }

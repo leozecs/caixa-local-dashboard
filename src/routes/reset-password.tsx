@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { requireSupabase } from "@/lib/supabase";
 import { signOut, updatePassword } from "@/lib/auth";
+import { validatePasswordStrength } from "@/lib/security";
 
 export const Route = createFileRoute("/reset-password")({
   head: () => ({ meta: [{ title: "Redefinir senha | Caixa Local" }] }),
@@ -50,8 +51,9 @@ function ResetPasswordPage() {
     setError(null);
     setMessage(null);
 
-    if (password.length < 8) {
-      setError("Use uma senha com pelo menos 8 caracteres.");
+    const passwordError = validatePasswordStrength(password);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
 

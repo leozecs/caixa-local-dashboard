@@ -56,7 +56,6 @@ import {
   downloadEntryAttachment,
   getCurrentStore,
   getGoals,
-  getMonthlyHistory,
   getPlanCapabilities,
   listStoreAttachments,
   listEntries,
@@ -89,6 +88,8 @@ function RelatoriosPage() {
     [],
   );
   const [selected, setSelected] = useState(months[0].value);
+  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
+  const [selectedSemester, setSelectedSemester] = useState("1");
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [importKind, setImportKind] = useState<"excel" | "pdf" | "conciliacao">("excel");
   const [importRows, setImportRows] = useState<ImportedEntry[]>([]);
@@ -109,11 +110,6 @@ function RelatoriosPage() {
     enabled: Boolean(store?.id),
   });
 
-  const { data: history = [] } = useQuery({
-    queryKey: ["monthly-history", store?.id],
-    queryFn: () => getMonthlyHistory(store!.id),
-    enabled: Boolean(store?.id && getPlanCapabilities(store.plan).monthlyComparison),
-  });
   const { data: goals = { revenue: 0, margin: 0, maxExpenses: 0 } } = useQuery({
     queryKey: ["goals", store?.id, selected],
     queryFn: () => getGoals(store!.id, selectedDate),
@@ -209,6 +205,19 @@ function RelatoriosPage() {
       return sources;
     }, new Map<string, { count: number; total: number }>()),
   ).sort(([a], [b]) => a.localeCompare(b));
+  const semesterYears = Array.from(
+    new Set([
+      new Date().getFullYear(),
+      ...entries.map((entry) => parseISO(entry.date).getFullYear()),
+    ]),
+  )
+    .sort((a, b) => b - a)
+    .map(String);
+  const semesterHistory = buildSemesterHistory(
+    entries,
+    Number(selectedYear),
+    selectedSemester === "1" ? 1 : 2,
+  );
 
   function exportCsv() {
     const header = ["Data", "Tipo", "Categoria", "Descricao", "Pagamento", "Valor"];
@@ -380,20 +389,45 @@ function RelatoriosPage() {
         }
       />
 
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-muted-foreground">Mes de referencia:</span>
-        <Select value={selected} onValueChange={setSelected}>
-          <SelectTrigger className="h-8 w-[200px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {months.map((month) => (
-              <SelectItem key={month.value} value={month.value}>
-                {month.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm text-muted-foreground">Mes de referencia:</span>
+          <Select value={selected} onValueChange={setSelected}>
+            <SelectTrigger className="h-8 w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {months.map((month) => (
+                <SelectItem key={month.value} value={month.value}>
+                  {month.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={selectedYear} onValueChange={setSelectedYear}>
+            <SelectTrigger className="h-8 w-[110px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {semesterYears.map((year) => (
+                <SelectItem key={year} value={year}>
+                  {year}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={selectedSemester} onValueChange={setSelectedSemester}>
+            <SelectTrigger className="h-8 w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">Semestre 1</SelectItem>
+              <SelectItem value="2">Semestre 2</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -403,57 +437,57 @@ function RelatoriosPage() {
         <MetricCard label="Margem" value={`${margin.toFixed(1)}%`} />
       </div>
 
-      {capabilities.monthlyComparison ? (
-        <Card className="shadow-none">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Evolucao dos ultimos 6 meses</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[300px] pl-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={history} margin={{ left: 8, right: 12, top: 8 }}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="oklch(0.91 0.008 247)"
-                  vertical={false}
-                />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(value) => `R$${(Number(value) / 1000).toFixed(0)}k`}
-                />
-                <Tooltip formatter={(value: unknown) => formatBRL(Number(value))} />
-                <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
-                <Line
-                  type="monotone"
-                  dataKey="faturamento"
-                  name="Faturamento"
-                  stroke="oklch(0.58 0.13 155)"
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="despesas"
-                  name="Despesas"
-                  stroke="oklch(0.56 0.2 27)"
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="lucro"
-                  name="Lucro"
-                  stroke="oklch(0.45 0.1 230)"
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      ) : null}
+      <Card className="shadow-none">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">
+            Evolucao do semestre {selectedSemester}/{selectedYear}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="h-[300px] pl-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={semesterHistory} margin={{ left: 8, right: 12, top: 8 }}>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="oklch(0.91 0.008 247)"
+                vertical={false}
+              />
+              <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value) => `R${(Number(value) / 1000).toFixed(0)}k`}
+              />
+              <Tooltip formatter={(value: unknown) => formatBRL(Number(value))} />
+              <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
+              <Line
+                type="monotone"
+                dataKey="faturamento"
+                name="Faturamento"
+                stroke="oklch(0.58 0.13 155)"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="despesas"
+                name="Despesas"
+                stroke="oklch(0.56 0.2 27)"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="lucro"
+                name="Lucro"
+                stroke="oklch(0.45 0.1 230)"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
 
       {importedSources.length ? (
         <Card className="shadow-none">
@@ -589,6 +623,27 @@ function RelatoriosPage() {
       />
     </div>
   );
+}
+
+function buildSemesterHistory(entries: Entry[], year: number, semester: 1 | 2) {
+  const firstMonth = semester === 1 ? 0 : 6;
+  return Array.from({ length: 6 }).map((_, index) => {
+    const monthDate = new Date(year, firstMonth + index, 1);
+    const monthEntries = entries.filter((entry) => isSameMonth(parseISO(entry.date), monthDate));
+    const faturamento = monthEntries
+      .filter((entry) => entry.type === "receita")
+      .reduce((sum, entry) => sum + entry.amount, 0);
+    const despesas = monthEntries
+      .filter((entry) => entry.type === "despesa")
+      .reduce((sum, entry) => sum + entry.amount, 0);
+
+    return {
+      month: format(monthDate, "MMM/yy", { locale: ptBR }),
+      faturamento,
+      despesas,
+      lucro: faturamento - despesas,
+    };
+  });
 }
 
 function buildReportRows(entries: Entry[]) {

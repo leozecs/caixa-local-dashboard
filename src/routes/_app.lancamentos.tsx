@@ -395,8 +395,11 @@ function EntriesTable({
                       {entry.description || "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
-                      {entry.type === "receita" && entry.downPaymentAmount
-                        ? formatBRLPrecise(entry.downPaymentAmount)
+                      {entry.type === "receita" ? formatBRLPrecise(entry.amount) : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
+                      {entry.type === "receita" && entry.saleTotalAmount
+                        ? formatBRLPrecise(entry.saleTotalAmount)
                         : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
@@ -521,7 +524,13 @@ function EntryModal({
   );
   const [description, setDescription] = useState(entry?.description || "");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(entry?.paymentMethod || "Pix");
-  const [amount, setAmount] = useState(entry?.amount ? String(entry.amount) : "");
+  const [amount, setAmount] = useState(
+    entry?.saleTotalAmount
+      ? String(entry.saleTotalAmount)
+      : entry?.amount
+        ? String(entry.amount)
+        : "",
+  );
   const [hasDownPayment, setHasDownPayment] = useState(Boolean(entry?.downPaymentAmount));
   const [downPaymentAmount, setDownPaymentAmount] = useState(
     entry?.downPaymentAmount ? String(entry.downPaymentAmount) : "",
@@ -555,7 +564,13 @@ function EntryModal({
     setDate(entry?.date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
     setDescription(entry?.description || "");
     setPaymentMethod(entry?.paymentMethod || "Pix");
-    setAmount(entry?.amount ? String(entry.amount) : "");
+    setAmount(
+      entry?.saleTotalAmount
+        ? String(entry.saleTotalAmount)
+        : entry?.amount
+          ? String(entry.amount)
+          : "",
+    );
     setHasDownPayment(Boolean(entry?.downPaymentAmount));
     setDownPaymentAmount(entry?.downPaymentAmount ? String(entry.downPaymentAmount) : "");
     const matched = entry?.salespersonName ? findSalesperson(entry.salespersonName) : null;
@@ -597,9 +612,11 @@ function EntryModal({
               date,
               description,
               paymentMethod,
-              amount: Number(amount),
+              amount:
+                type === "receita" && hasDownPayment ? Number(downPaymentAmount) : Number(amount),
+              saleTotalAmount: type === "receita" ? Number(amount) : null,
               downPaymentAmount:
-                type === "receita" && hasDownPayment ? Number(downPaymentAmount || 0) : null,
+                type === "receita" && hasDownPayment ? Number(downPaymentAmount) : null,
               salespersonName: type === "receita" && applyCommission ? salespersonName : null,
               commissionPercent:
                 type === "receita" && applyCommission ? Number(commissionPercent) : null,
@@ -759,7 +776,9 @@ function EntryModal({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Valor (R$)">
+            <Field
+              label={type === "receita" ? "Valor total da venda (R$)" : "Valor da despesa (R$)"}
+            >
               <Input
                 type="number"
                 min="0"

@@ -13,24 +13,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { DollarSign, Percent, Plus, Receipt, ShoppingBag, Target, TrendingUp } from "lucide-react";
 import {
-  AlertCircle,
-  AlertTriangle,
-  DollarSign,
-  Info,
-  Percent,
-  Plus,
-  Receipt,
-  ShoppingBag,
-  Target,
-  TrendingUp,
-} from "lucide-react";
-import {
+  addDays,
   format,
   isSameDay,
   isSameMonth,
   parseISO,
   startOfMonth,
+  startOfWeek,
   subDays,
   subMonths,
 } from "date-fns";
@@ -75,6 +66,7 @@ function DashboardPage() {
     [today],
   );
   const [selectedMonth, setSelectedMonth] = useState(months[0].value);
+  const [selectedWeek, setSelectedWeek] = useState("1");
   const [selectedSalesperson, setSelectedSalesperson] = useState("todos");
   const monthStart = parseISO(selectedMonth);
   const previousMonth = startOfMonth(subMonths(monthStart, 1));
@@ -127,9 +119,12 @@ function DashboardPage() {
   const goalProgress = goals.revenue ? (revenue / goals.revenue) * 100 : 0;
   const isAttendant = store.memberRole === "atendente";
 
+  const selectedWeekStart = addDays(
+    startOfWeek(monthStart, { weekStartsOn: 1 }),
+    (Number(selectedWeek) - 1) * 7,
+  );
   const weeklyRevenueData = Array.from({ length: 7 }).map((_, index) => {
-    const day = new Date(today);
-    day.setDate(today.getDate() + index);
+    const day = addDays(selectedWeekStart, index);
     const dayEntries = currentEntries.filter((entry) => isSameDay(parseISO(entry.date), day));
     return {
       day: format(day, "EEE dd/MM", { locale: ptBR }),
@@ -184,7 +179,7 @@ function DashboardPage() {
   const todayProfit = todayRevenue - todayExpenses;
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const expectedRevenue = goals.revenue > 0 ? goals.revenue * (today.getDate() / daysInMonth) : 0;
-  const alerts = buildAlerts({ margin, goalProgress, expenses, goals, today });
+
   const expenseTicks = buildExpenseTicks(expensesByCat.map((item) => item.valor));
 
   if (isAttendant) {
@@ -278,7 +273,13 @@ function DashboardPage() {
         description={`Visão geral de ${format(monthStart, "MMMM/yyyy", { locale: ptBR })} — ${store.name}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <Select
+              value={selectedMonth}
+              onValueChange={(value) => {
+                setSelectedMonth(value);
+                setSelectedWeek("1");
+              }}
+            >
               <SelectTrigger className="h-8 w-[180px]">
                 <SelectValue />
               </SelectTrigger>
@@ -446,8 +447,20 @@ function DashboardPage() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <Card className="xl:col-span-2 shadow-none">
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
             <CardTitle className="text-sm font-semibold">Faturamento semanal</CardTitle>
+            <Select value={selectedWeek} onValueChange={setSelectedWeek}>
+              <SelectTrigger className="h-8 w-[120px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[1, 2, 3, 4].map((week) => (
+                  <SelectItem key={week} value={String(week)}>
+                    Semana {week}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </CardHeader>
           <CardContent className="h-[280px] pl-0">
             <ResponsiveContainer width="100%" height="100%">
@@ -554,124 +567,65 @@ function DashboardPage() {
           </CardContent>
         </Card>
 
-        {capabilities.alerts ? (
-          <Card className="xl:col-span-2 shadow-none">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold">Alertas</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2 md:grid-cols-2">
-              {alerts.map((alert, index) => (
-                <AlertRow key={index} {...alert} />
-              ))}
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="xl:col-span-2 shadow-none">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold">Alertas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AlertRow
-                type="info"
-                text="Alertas de margem, meta atrasada e despesa perto do limite ficam disponiveis a partir do plano Essencial."
-              />
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      <Card className="shadow-none">
-        <CardHeader className="pb-2 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-semibold">Últimos lançamentos</CardTitle>
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/lancamentos">Ver todos</Link>
-          </Button>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-muted-foreground border-b border-border">
-                <tr className="[&>th]:px-4 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium">
-                  <th>Data</th>
-                  <th>Tipo</th>
-                  <th>Categoria</th>
-                  <th>Responsavel</th>
-                  <th>Descrição</th>
-                  <th>Pagamento</th>
-                  <th className="text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.slice(0, 6).map((entry) => (
-                  <tr
-                    key={entry.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/40"
-                  >
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {format(parseISO(entry.date), "dd/MM")}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <EntryBadge type={entry.type} />
-                    </td>
-                    <td className="px-4 py-2.5">{entry.category}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {entry.type === "receita" ? entry.salespersonName || "-" : "-"}
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground truncate max-w-[280px]">
-                      {entry.description}
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{entry.paymentMethod}</td>
-                    <td
-                      className={cn(
-                        "px-4 py-2.5 text-right font-medium tabular-nums",
-                        entry.type === "receita" ? "text-success" : "text-destructive",
-                      )}
-                    >
-                      {entry.type === "receita" ? "+" : "-"} {formatBRLPrecise(entry.amount)}
-                    </td>
+        <Card className="xl:col-span-2 shadow-none">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm font-semibold">Últimos lançamentos</CardTitle>
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/lancamentos">Ver todos</Link>
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs text-muted-foreground border-b border-border">
+                  <tr className="[&>th]:px-4 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium">
+                    <th>Data</th>
+                    <th>Tipo</th>
+                    <th>Categoria</th>
+                    <th>Responsavel</th>
+                    <th>Descrição</th>
+                    <th>Pagamento</th>
+                    <th className="text-right">Valor</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                </thead>
+                <tbody>
+                  {entries.slice(0, 6).map((entry) => (
+                    <tr
+                      key={entry.id}
+                      className="border-b border-border last:border-0 hover:bg-muted/40"
+                    >
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {format(parseISO(entry.date), "dd/MM")}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <EntryBadge type={entry.type} />
+                      </td>
+                      <td className="px-4 py-2.5">{entry.category}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {entry.type === "receita" ? entry.salespersonName || "-" : "-"}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground truncate max-w-[280px]">
+                        {entry.description}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground">{entry.paymentMethod}</td>
+                      <td
+                        className={cn(
+                          "px-4 py-2.5 text-right font-medium tabular-nums",
+                          entry.type === "receita" ? "text-success" : "text-destructive",
+                        )}
+                      >
+                        {entry.type === "receita" ? "+" : "-"} {formatBRLPrecise(entry.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
-}
-
-function buildAlerts({
-  margin,
-  goalProgress,
-  expenses,
-  goals,
-  today,
-}: {
-  margin: number;
-  goalProgress: number;
-  expenses: number;
-  goals: { margin: number; revenue: number; maxExpenses: number };
-  today: Date;
-}): { type: "warning" | "danger" | "info"; text: string }[] {
-  const alerts: { type: "warning" | "danger" | "info"; text: string }[] = [];
-  if (goals.margin > 0 && margin < goals.margin)
-    alerts.push({
-      type: "warning",
-      text: `Margem em ${margin.toFixed(1)}% — abaixo da meta (${goals.margin}%).`,
-    });
-  if (goals.revenue > 0 && goalProgress < (today.getDate() / 30) * 100 - 10)
-    alerts.push({
-      type: "warning",
-      text: `Meta atrasada — ${goalProgress.toFixed(0)}% no dia ${today.getDate()}.`,
-    });
-  if (goals.maxExpenses > 0 && expenses > goals.maxExpenses * 0.85)
-    alerts.push({
-      type: "danger",
-      text: `Despesas em ${formatBRL(expenses)}, próximas do limite (${formatBRL(goals.maxExpenses)}).`,
-    });
-  return alerts.length
-    ? alerts
-    : [{ type: "info", text: "Tudo dentro do esperado para o período." }];
 }
 
 function buildExpenseTicks(values: number[]) {
@@ -744,21 +698,6 @@ function RoutineCard({
         <div className="mt-1 text-sm text-muted-foreground">{detail}</div>
       </CardContent>
     </Card>
-  );
-}
-
-function AlertRow({ type, text }: { type: "warning" | "danger" | "info"; text: string }) {
-  const map = {
-    warning: { Icon: AlertTriangle, cls: "text-warning bg-warning/10 border-warning/30" },
-    danger: { Icon: AlertCircle, cls: "text-destructive bg-destructive/10 border-destructive/30" },
-    info: { Icon: Info, cls: "text-info bg-info/10 border-info/30" },
-  }[type];
-  const Icon = map.Icon;
-  return (
-    <div className={cn("flex items-start gap-2 rounded-md border px-3 py-2 text-sm", map.cls)}>
-      <Icon className="h-4 w-4 mt-0.5 shrink-0" />
-      <span className="text-foreground/90">{text}</span>
-    </div>
   );
 }
 

@@ -2,6 +2,13 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import {
+  GENERIC_LOGIN_ERROR,
+  isValidEmail,
+  normalizeEmail,
+  sanitizeText,
+  validatePasswordStrength,
+} from "./lib/security";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -21,6 +28,11 @@ type AiInsight = {
 const AI_SYSTEM_PROMPT =
   'Voce e um consultor pratico para o Caixa Local. Se os dados tiverem scope "commercial_growth", foque em vender mais o Caixa Local, gerar leads, aumentar recorrencia e reduzir cancelamento. Caso contrario, foque na gestao financeira de pequenos comercios locais no Brasil. Analise apenas os dados recebidos, seja pratico e nao invente numeros. Responda exclusivamente em JSON valido no formato {"summary":"...","opportunity":"...","risk":"...","actions":["...","...","..."]}.';
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_BLOCK_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 5;
+
+const loginAttempts = new Map<string, { count: number; resetAt: number; blockedUntil: number }>();
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
@@ -57,6 +69,73 @@ function readEnv(env: unknown, key: string): string | undefined {
   }
 
   return process.env[key];
+}
+
+function getClientIp(request: Request) {
+  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return (
+    request.headers.get("cf-connecting-ip") ||
+    request.headers.get("x-real-ip") ||
+    forwardedFor ||
+    "unknown"
+  );
+}
+
+function loginRateKeys(ip: string, email: string) {
+  return [`ip:${ip}`, `email:${email}`, `combo:${ip}:${email}`];
+}
+
+function readLoginBucket(key: string, now: number) {
+  const current = loginAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    const fresh = { count: 0, resetAt: now + LOGIN_WINDOW_MS, blockedUntil: 0 };
+    loginAttempts.set(key, fresh);
+    return fresh;
+  }
+  return current;
+}
+
+function checkLoginRateLimit(ip: string, email: string) {
+  const now = Date.now();
+  const buckets = loginRateKeys(ip, email).map((key) => readLoginBucket(key, now));
+  const blockedUntil = Math.max(...buckets.map((bucket) => bucket.blockedUntil));
+  return blockedUntil > now ? Math.ceil((blockedUntil - now) / 1000) : 0;
+}
+
+function registerLoginFailure(ip: string, email: string) {
+  const now = Date.now();
+  for (const key of loginRateKeys(ip, email)) {
+    const bucket = readLoginBucket(key, now);
+    bucket.count += 1;
+    if (bucket.count >= LOGIN_MAX_ATTEMPTS) {
+      bucket.blockedUntil = now + LOGIN_BLOCK_MS;
+      console.warn("Tentativas de login bloqueadas", { key, blockedUntil: bucket.blockedUntil });
+    }
+  }
+}
+
+function clearLoginFailures(ip: string, email: string) {
+  for (const key of loginRateKeys(ip, email)) loginAttempts.delete(key);
+}
+
+function applySecurityHeaders(response: Response) {
+  const headers = new Headers(response.headers);
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("x-frame-options", "DENY");
+  headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  headers.set("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  headers.set("cross-origin-opener-policy", "same-origin");
+  if (!headers.has("content-security-policy")) {
+    headers.set(
+      "content-security-policy",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co https://api.openai.com https://api.groq.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    );
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 async function getSupabaseUser(request: Request, env: unknown): Promise<SupabaseUser | null> {
@@ -103,6 +182,67 @@ async function supabaseAdminFetch(
   if (init.prefer) headers.set("prefer", init.prefer);
 
   return fetch(`${url}${path}`, { ...init, headers });
+}
+
+async function handleLogin(request: Request, env: unknown) {
+  if (request.method !== "POST") {
+    return jsonResponse({ message: "Metodo nao permitido." }, { status: 405 });
+  }
+
+  const body = (await request.json().catch(() => null)) as {
+    email?: unknown;
+    password?: unknown;
+  } | null;
+  const email = normalizeEmail(String(body?.email || ""));
+  const password = typeof body?.password === "string" ? body.password : "";
+  const ip = getClientIp(request);
+
+  if (!isValidEmail(email) || !password) {
+    registerLoginFailure(ip, email || "invalid");
+    return jsonResponse({ message: GENERIC_LOGIN_ERROR }, { status: 401 });
+  }
+
+  const retryAfterSeconds = checkLoginRateLimit(ip, email);
+  if (retryAfterSeconds > 0) {
+    return jsonResponse(
+      {
+        message:
+          retryAfterSeconds >= LOGIN_BLOCK_MS / 1000
+            ? "Muitas tentativas. Tente novamente em alguns minutos."
+            : "Aguarde alguns segundos antes de tentar novamente.",
+      },
+      { status: 429, headers: { "retry-after": String(retryAfterSeconds) } },
+    );
+  }
+
+  const supabaseUrl = readEnv(env, "VITE_SUPABASE_URL");
+  const supabaseKey = readEnv(env, "VITE_SUPABASE_PUBLISHABLE_KEY");
+  if (!supabaseUrl || !supabaseKey) {
+    return jsonResponse({ message: "Servico de login indisponivel." }, { status: 503 });
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: {
+      apikey: supabaseKey,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ email, password }),
+  });
+  const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+
+  if (!response.ok || typeof payload?.access_token !== "string") {
+    registerLoginFailure(ip, email);
+    return jsonResponse({ message: GENERIC_LOGIN_ERROR }, { status: 401 });
+  }
+
+  clearLoginFailures(ip, email);
+  return jsonResponse({
+    access_token: payload.access_token,
+    refresh_token: payload.refresh_token,
+    expires_in: payload.expires_in,
+    token_type: payload.token_type,
+  });
 }
 
 async function requireOwner(request: Request, env: unknown) {
@@ -255,13 +395,13 @@ async function handleAdminCreateStore(request: Request, env: unknown) {
     cnpj?: string | null;
   };
 
-  const name = body.name?.trim();
-  const owner = body.owner?.trim();
+  const name = sanitizeText(body.name);
+  const owner = sanitizeText(body.owner);
   const email = body.email?.trim().toLowerCase();
   const password = body.password || "";
-  const segment = body.segment?.trim();
-  const city = body.city?.trim() || "Vinhedo/SP";
-  const plan = body.plan?.trim() || "Trial";
+  const segment = sanitizeText(body.segment);
+  const city = sanitizeText(body.city) || "Vinhedo/SP";
+  const plan = sanitizeText(body.plan) || "Trial";
   const status = body.status || "trial";
 
   if (!name || !owner || !email || !password || !segment) {
@@ -270,12 +410,8 @@ async function handleAdminCreateStore(request: Request, env: unknown) {
       { status: 400 },
     );
   }
-  if (password.length < 8) {
-    return jsonResponse(
-      { message: "A senha inicial precisa ter pelo menos 8 caracteres." },
-      { status: 400 },
-    );
-  }
+  const passwordError = validatePasswordStrength(password);
+  if (passwordError) return jsonResponse({ message: passwordError }, { status: 400 });
 
   const userResponse = await supabaseAdminFetch(env, "/auth/v1/admin/users", {
     method: "POST",
@@ -458,7 +594,7 @@ async function handleStoreMembers(request: Request, env: unknown) {
       password?: string;
       role?: StoreMemberRole;
     };
-    const name = body.name?.trim();
+    const name = sanitizeText(body.name);
     const email = body.email?.trim().toLowerCase();
     const password = body.password || "";
     const role: StoreMemberRole = body.role === "owner" ? "owner" : "atendente";
@@ -466,12 +602,8 @@ async function handleStoreMembers(request: Request, env: unknown) {
     if (!name || !email || !password) {
       return jsonResponse({ message: "Preencha nome, email e senha." }, { status: 400 });
     }
-    if (password.length < 8) {
-      return jsonResponse(
-        { message: "A senha precisa ter pelo menos 8 caracteres." },
-        { status: 400 },
-      );
-    }
+    const passwordError = validatePasswordStrength(password);
+    if (passwordError) return jsonResponse({ message: passwordError }, { status: 400 });
 
     const store = await getStoreForTeam(env, storeId);
     const members = await listStoreMembers(env, storeId);
@@ -1036,19 +1168,22 @@ export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const url = new URL(request.url);
+      if (url.pathname === "/api/auth/login") {
+        return applySecurityHeaders(await handleLogin(request, env));
+      }
       if (url.pathname === "/api/ai-insights") {
-        return await handleAiInsights(request, env);
+        return applySecurityHeaders(await handleAiInsights(request, env));
       }
       if (url.pathname === "/api/admin/stores") {
-        return await handleAdminCreateStore(request, env);
+        return applySecurityHeaders(await handleAdminCreateStore(request, env));
       }
       if (url.pathname === "/api/store-members") {
-        return await handleStoreMembers(request, env);
+        return applySecurityHeaders(await handleStoreMembers(request, env));
       }
 
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      return applySecurityHeaders(await normalizeCatastrophicSsrResponse(response));
     } catch (error) {
       console.error(error);
       return brandedErrorResponse();

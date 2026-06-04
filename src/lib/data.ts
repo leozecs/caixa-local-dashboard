@@ -61,6 +61,7 @@ export interface Entry {
   description?: string | null;
   paymentMethod: PaymentMethod;
   amount: number;
+  saleTotalAmount?: number | null;
   salespersonName?: string | null;
   commissionPercent?: number | null;
   commissionAmount?: number;
@@ -232,6 +233,7 @@ type EntryRow = {
   description: string | null;
   payment_method: PaymentMethod;
   amount: number;
+  sale_total_amount?: number | null;
   salesperson_name?: string | null;
   commission_percent?: number | null;
   commission_amount?: number | null;
@@ -452,6 +454,10 @@ function toEntry(row: EntryRow): Entry {
     description: row.description,
     paymentMethod: row.payment_method,
     amount: row.amount / 100,
+    saleTotalAmount:
+      row.sale_total_amount === null || row.sale_total_amount === undefined
+        ? null
+        : row.sale_total_amount / 100,
     salespersonName: row.salesperson_name || null,
     commissionPercent:
       row.commission_percent === null || row.commission_percent === undefined
@@ -1286,7 +1292,7 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
       : null;
   const commissionAmount =
     entry.type === "receita" && commissionPercent !== null
-      ? Math.round(entry.amount * (commissionPercent / 100) * 100)
+      ? Math.round((entry.saleTotalAmount ?? entry.amount) * (commissionPercent / 100) * 100)
       : 0;
   const payload = {
     store_id: entry.storeId,
@@ -1296,6 +1302,12 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
     description: entry.description || null,
     payment_method: entry.paymentMethod,
     amount: Math.round(entry.amount * 100),
+    sale_total_amount:
+      entry.type === "receita" &&
+      entry.saleTotalAmount !== null &&
+      entry.saleTotalAmount !== undefined
+        ? Math.round(entry.saleTotalAmount * 100)
+        : null,
     salesperson_name: entry.type === "receita" ? entry.salespersonName?.trim() || null : null,
     commission_percent: commissionPercent,
     commission_amount: commissionAmount,
