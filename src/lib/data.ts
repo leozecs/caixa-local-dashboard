@@ -64,6 +64,8 @@ export interface Entry {
   salespersonName?: string | null;
   commissionPercent?: number | null;
   commissionAmount?: number;
+  downPaymentAmount?: number | null;
+  importSource?: string | null;
   isRecurring?: boolean;
 }
 
@@ -233,6 +235,8 @@ type EntryRow = {
   salesperson_name?: string | null;
   commission_percent?: number | null;
   commission_amount?: number | null;
+  down_payment_amount?: number | null;
+  import_source?: string | null;
   is_recurring?: boolean | null;
 };
 
@@ -454,6 +458,11 @@ function toEntry(row: EntryRow): Entry {
         ? null
         : Number(row.commission_percent),
     commissionAmount: (row.commission_amount || 0) / 100,
+    downPaymentAmount:
+      row.down_payment_amount === null || row.down_payment_amount === undefined
+        ? null
+        : row.down_payment_amount / 100,
+    importSource: row.import_source || null,
     isRecurring: Boolean(row.is_recurring),
   };
 }
@@ -602,6 +611,15 @@ function isMissingTableError(error: unknown) {
     error !== null &&
     "code" in error &&
     (error as { code?: string }).code === "42P01"
+  );
+}
+
+function isMissingColumnError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "42703"
   );
 }
 
@@ -853,7 +871,14 @@ export async function updateStore(id: string, input: Partial<Store>) {
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingColumnError(error)) {
+      throw new Error(
+        "Preferencia ainda nao existe no banco. Aplique as migrations do Supabase e tente novamente.",
+      );
+    }
+    throw error;
+  }
   return hydrateStore(data as StoreRow);
 }
 
@@ -1274,6 +1299,13 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
     salesperson_name: entry.type === "receita" ? entry.salespersonName?.trim() || null : null,
     commission_percent: commissionPercent,
     commission_amount: commissionAmount,
+    down_payment_amount:
+      entry.type === "receita" &&
+      entry.downPaymentAmount !== null &&
+      entry.downPaymentAmount !== undefined
+        ? Math.round(entry.downPaymentAmount * 100)
+        : null,
+    import_source: entry.importSource?.trim() || null,
     is_recurring: Boolean(entry.isRecurring),
     updated_at: new Date().toISOString(),
   };
@@ -1285,6 +1317,17 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
   const { data, error } = await query.select().single();
   if (error) throw error;
   return toEntry(data as EntryRow);
+}
+
+export async function deleteEntriesByImportSource(storeId: string, importSource: string) {
+  const client = requireSupabase();
+  const { error } = await client
+    .from("financial_entries")
+    .delete()
+    .eq("store_id", storeId)
+    .eq("import_source", importSource);
+
+  if (error) throw error;
 }
 
 export async function deleteEntry(id: string) {

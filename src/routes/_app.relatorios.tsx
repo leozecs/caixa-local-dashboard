@@ -17,6 +17,7 @@ import {
   FileArchive,
   FileSpreadsheet,
   FileText,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -51,6 +52,7 @@ import {
 import { useSession } from "@/lib/auth";
 import {
   formatBRL,
+  deleteEntriesByImportSource,
   downloadEntryAttachment,
   getCurrentStore,
   getGoals,
@@ -131,6 +133,7 @@ function RelatoriosPage() {
             description: row.description,
             paymentMethod: row.paymentMethod,
             amount: row.amount,
+            importSource: row.source,
           }),
         ),
       );
@@ -138,6 +141,7 @@ function RelatoriosPage() {
     onSuccess: (_data, rows) => {
       queryClient.invalidateQueries({ queryKey: ["entries"] });
       queryClient.invalidateQueries({ queryKey: ["entries-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["monthly-history"] });
       queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
       toast.success(`${rows.length} lancamento(s) importado(s).`);
       setImportPreviewOpen(false);
@@ -147,6 +151,21 @@ function RelatoriosPage() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao importar lancamentos."),
+  });
+  const deleteImportMutation = useMutation({
+    mutationFn: (source: string) => {
+      if (!store) throw new Error("Loja nao carregada.");
+      return deleteEntriesByImportSource(store.id, source);
+    },
+    onSuccess: (_data, source) => {
+      queryClient.invalidateQueries({ queryKey: ["entries"] });
+      queryClient.invalidateQueries({ queryKey: ["entries-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["monthly-history"] });
+      queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
+      toast.success(`Arquivo ${source} removido dos relatorios.`);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao remover importacao."),
   });
 
   if (!store)
@@ -180,6 +199,16 @@ function RelatoriosPage() {
   const topExpense = byCat
     .filter((row) => row.despesa > 0)
     .sort((a, b) => b.despesa - a.despesa)[0];
+  const importedSources = Array.from(
+    entries.reduce((sources, entry) => {
+      if (!entry.importSource) return sources;
+      const current = sources.get(entry.importSource) || { count: 0, total: 0 };
+      current.count += 1;
+      current.total += entry.amount;
+      sources.set(entry.importSource, current);
+      return sources;
+    }, new Map<string, { count: number; total: number }>()),
+  ).sort(([a], [b]) => a.localeCompare(b));
 
   function exportCsv() {
     const header = ["Data", "Tipo", "Categoria", "Descricao", "Pagamento", "Valor"];
@@ -422,6 +451,44 @@ function RelatoriosPage() {
                 />
               </LineChart>
             </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {importedSources.length ? (
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Arquivos importados</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {importedSources.map(([source, info]) => (
+              <div
+                key={source}
+                className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{source}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {info.count} lancamento(s), total movimentado {formatBRL(info.total)}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={deleteImportMutation.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Remover todos os lancamentos importados de "${source}"?`)) {
+                      deleteImportMutation.mutate(source);
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remover
+                </Button>
+              </div>
+            ))}
           </CardContent>
         </Card>
       ) : null}

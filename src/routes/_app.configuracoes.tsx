@@ -183,6 +183,7 @@ function ConfigPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["current-store"] });
       queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["entries-dashboard"] });
       toast.success("Preferencia atualizada.");
     },
     onError: (error) =>
@@ -707,7 +708,7 @@ function ConfigPage() {
         <CardContent className="space-y-4">
           <ToggleRow
             label="Exibir comissoes por funcionario"
-            hint="Liga o ranking de receita por funcionario com comissoes no dashboard."
+            hint="Controla apenas o grafico de receita por funcionario no dashboard. O formulario de lancamento continua permitindo comissao."
             checked={store.employeeCommissionsEnabled !== false}
             onCheckedChange={(checked) =>
               notificationMutation.mutate({ employeeCommissionsEnabled: checked })

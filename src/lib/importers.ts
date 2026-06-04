@@ -40,6 +40,7 @@ const DESCRIPTION_HEADERS = [
 ];
 const PAYMENT_HEADERS = ["pagamento", "forma", "forma de pagamento", "payment", "metodo", "método"];
 const AMOUNT_HEADERS = ["valor", "amount", "total", "preco", "preço", "entrada", "saida", "saída"];
+const GENERIC_AMOUNT_HEADERS = ["valor", "amount", "total", "preco", "preço"];
 const REVENUE_HEADERS = ["faturamento", "receita", "receitas", "entrada", "entradas", "vendas"];
 const EXPENSE_HEADERS = ["despesas", "despesa", "saida", "saída", "saidas", "saídas", "gastos"];
 
@@ -68,14 +69,15 @@ export function reconcileImportedEntries(imported: ImportedEntry[], existing: En
 
 async function parseWorkbook(file: File) {
   const sheetRows = await readSheet(file);
-  const headers = (sheetRows[0] || []).map((header) => String(header || ""));
+  const headerIndex = findHeaderRowIndex(sheetRows);
+  const headers = (sheetRows[headerIndex] || []).map((header) => String(header || ""));
   if (!headers.some((header) => normalizeKey(header))) {
     return sheetRows
       .map((cells) => parseTextLine(cells.map((cell) => String(cell || "")).join(" "), file.name))
       .filter((item): item is ImportedEntry => Boolean(item));
   }
   const rows = sheetRows
-    .slice(1)
+    .slice(headerIndex + 1)
     .map((cells) =>
       Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])),
     );
@@ -85,6 +87,29 @@ async function parseWorkbook(file: File) {
   return sheetRows
     .map((cells) => parseTextLine(cells.map((cell) => String(cell || "")).join(" "), file.name))
     .filter((item): item is ImportedEntry => Boolean(item));
+}
+
+function findHeaderRowIndex(sheetRows: unknown[][]) {
+  const allHeaders = [
+    ...DATE_HEADERS,
+    ...MONTH_HEADERS,
+    ...TYPE_HEADERS,
+    ...CATEGORY_HEADERS,
+    ...DESCRIPTION_HEADERS,
+    ...PAYMENT_HEADERS,
+    ...AMOUNT_HEADERS,
+    ...REVENUE_HEADERS,
+    ...EXPENSE_HEADERS,
+  ].map(normalizeKey);
+
+  const scored = sheetRows.slice(0, 20).map((cells, index) => {
+    const score = cells
+      .map((cell) => normalizeKey(String(cell || "")))
+      .filter((cell) => allHeaders.includes(cell)).length;
+    return { index, score };
+  });
+
+  return scored.sort((a, b) => b.score - a.score)[0]?.score ? scored[0].index : 0;
 }
 
 function parseDelimited(text: string, source: string) {
@@ -163,10 +188,14 @@ function normalizeImportedEntriesFromRow(row: Record<string, unknown>, source: s
   );
   const dateValue = findValue(normalized, DATE_HEADERS) || findValue(normalized, MONTH_HEADERS);
   const parsedDate = parseDate(dateValue);
-  const revenueAmount = parseAmount(findValue(normalized, REVENUE_HEADERS));
-  const expenseAmount = parseAmount(findValue(normalized, EXPENSE_HEADERS));
+  const revenueAmount = sumAmounts(findValues(normalized, REVENUE_HEADERS));
+  const expenseAmount = sumAmounts(findValues(normalized, EXPENSE_HEADERS));
 
-  if (parsedDate && (revenueAmount || expenseAmount) && !findValue(normalized, AMOUNT_HEADERS)) {
+  if (
+    parsedDate &&
+    (revenueAmount || expenseAmount) &&
+    !findValue(normalized, GENERIC_AMOUNT_HEADERS)
+  ) {
     const rows: ImportedEntry[] = [];
     if (revenueAmount) {
       rows.push({
@@ -277,6 +306,17 @@ function findValue(row: Record<string, unknown>, candidates: string[]) {
   return key ? row[key] : "";
 }
 
+function findValues(row: Record<string, unknown>, candidates: string[]) {
+  const normalizedCandidates = candidates.map(normalizeKey);
+  return Object.entries(row)
+    .filter(([key]) => normalizedCandidates.includes(normalizeKey(key)))
+    .map(([, value]) => value);
+}
+
+function sumAmounts(values: unknown[]) {
+  return values.reduce<number>((sum, value) => sum + parseAmount(value), 0);
+}
+
 function parseDate(value: unknown) {
   if (value instanceof Date && isValid(value)) return format(value, "yyyy-MM-dd");
   if (typeof value === "number") {
@@ -300,7 +340,9 @@ function parseDate(value: unknown) {
 }
 
 function parseMonthDate(value: string) {
-  const text = normalizeKey(value).replace(/\s+de\s+/g, "/").replace(/\s+/g, "/");
+  const text = normalizeKey(value)
+    .replace(/\s+de\s+/g, "/")
+    .replace(/\s+/g, "/");
   const monthMap: Record<string, number> = {
     jan: 0,
     janeiro: 0,
@@ -333,9 +375,7 @@ function parseMonthDate(value: string) {
   if (!match) return null;
   const yearText = match[2];
   const currentYear = new Date().getFullYear();
-  const year = yearText
-    ? Number(yearText.length === 2 ? `20${yearText}` : yearText)
-    : currentYear;
+  const year = yearText ? Number(yearText.length === 2 ? `20${yearText}` : yearText) : currentYear;
   const parsed = new Date(Date.UTC(year, monthMap[match[1]], 1));
   return isValid(parsed) ? format(parsed, "yyyy-MM-dd") : null;
 }

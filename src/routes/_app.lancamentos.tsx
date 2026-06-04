@@ -371,6 +371,7 @@ function EntriesTable({
                   <th>Categoria</th>
                   <th>Responsavel</th>
                   <th>Descricao</th>
+                  <th className="text-right">Entrada</th>
                   <th className="text-right">Comissao</th>
                   <th className="text-right">Valor</th>
                   {canManage && <th className="text-right w-[88px]">Acoes</th>}
@@ -392,6 +393,11 @@ function EntriesTable({
                     <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[220px]">
                       {entry.isRecurring ? "Recorrente - " : ""}
                       {entry.description || "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
+                      {entry.type === "receita" && entry.downPaymentAmount
+                        ? formatBRLPrecise(entry.downPaymentAmount)
+                        : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
                       {entry.type === "receita" && entry.commissionAmount
@@ -516,6 +522,10 @@ function EntryModal({
   const [description, setDescription] = useState(entry?.description || "");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(entry?.paymentMethod || "Pix");
   const [amount, setAmount] = useState(entry?.amount ? String(entry.amount) : "");
+  const [hasDownPayment, setHasDownPayment] = useState(Boolean(entry?.downPaymentAmount));
+  const [downPaymentAmount, setDownPaymentAmount] = useState(
+    entry?.downPaymentAmount ? String(entry.downPaymentAmount) : "",
+  );
   const [salespersonName, setSalespersonName] = useState(entry?.salespersonName || "");
   const [commissionPercent, setCommissionPercent] = useState(
     String(entry?.commissionPercent ?? defaultCommissionPercent),
@@ -546,6 +556,8 @@ function EntryModal({
     setDescription(entry?.description || "");
     setPaymentMethod(entry?.paymentMethod || "Pix");
     setAmount(entry?.amount ? String(entry.amount) : "");
+    setHasDownPayment(Boolean(entry?.downPaymentAmount));
+    setDownPaymentAmount(entry?.downPaymentAmount ? String(entry.downPaymentAmount) : "");
     const matched = entry?.salespersonName ? findSalesperson(entry.salespersonName) : null;
     setSalespersonName(entry?.salespersonName || matched?.name || "");
     setCommissionPercent(
@@ -586,6 +598,8 @@ function EntryModal({
               description,
               paymentMethod,
               amount: Number(amount),
+              downPaymentAmount:
+                type === "receita" && hasDownPayment ? Number(downPaymentAmount || 0) : null,
               salespersonName: type === "receita" && applyCommission ? salespersonName : null,
               commissionPercent:
                 type === "receita" && applyCommission ? Number(commissionPercent) : null,
@@ -636,6 +650,25 @@ function EntryModal({
           </Field>
           {type === "receita" && (
             <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={hasDownPayment}
+                  onCheckedChange={(checked) => setHasDownPayment(checked === true)}
+                />
+                valor de entrada
+              </label>
+              {hasDownPayment && (
+                <Field label="Valor de entrada (R$)">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={downPaymentAmount}
+                    onChange={(event) => setDownPaymentAmount(event.target.value)}
+                    placeholder="0,00"
+                  />
+                </Field>
+              )}
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={applyCommission}
@@ -753,6 +786,9 @@ function EntryModal({
               disabled={
                 pending ||
                 Number(amount) <= 0 ||
+                (type === "receita" &&
+                  hasDownPayment &&
+                  (downPaymentAmount.trim() === "" || Number(downPaymentAmount) < 0)) ||
                 (type === "receita" && applyCommission && !salespersonName.trim())
               }
             >
