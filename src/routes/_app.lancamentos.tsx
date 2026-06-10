@@ -114,6 +114,7 @@ function LancamentosPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["entries"] });
       queryClient.invalidateQueries({ queryKey: ["entries-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["entry-months"] });
       queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
       toast.success(editing ? "Lancamento atualizado." : "Lancamento adicionado.");
       setModalOpen(false);
@@ -128,6 +129,7 @@ function LancamentosPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["entries"] });
       queryClient.invalidateQueries({ queryKey: ["entries-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["entry-months"] });
       queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
       toast.success("Lancamento removido.");
       setDeleting(null);
@@ -377,6 +379,7 @@ function EntriesTable({
                   <th>Responsavel</th>
                   <th>Descricao</th>
                   <th className="text-right">Entrada</th>
+                  <th className="text-right">Parcelas</th>
                   <th className="text-right">Comissao</th>
                   <th className="text-right">Valor</th>
                   {canManage && <th className="text-right w-[88px]">Acoes</th>}
@@ -403,6 +406,9 @@ function EntriesTable({
                       {entry.type === "receita" && entry.downPaymentAmount
                         ? formatBRLPrecise(entry.downPaymentAmount)
                         : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
+                      {entry.type === "receita" ? `${entry.installments || 1}x` : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
                       {entry.type === "receita" && entry.commissionAmount
@@ -540,6 +546,7 @@ function EntryModal({
   const [downPaymentAmount, setDownPaymentAmount] = useState(
     entry?.downPaymentAmount ? String(entry.downPaymentAmount) : "",
   );
+  const [installments, setInstallments] = useState(String(entry?.installments || 1));
   const [salespersonName, setSalespersonName] = useState(entry?.salespersonName || "");
   const [commissionPercent, setCommissionPercent] = useState(
     String(entry?.commissionPercent ?? defaultCommissionPercent),
@@ -578,6 +585,7 @@ function EntryModal({
     );
     setHasDownPayment(Boolean(entry?.downPaymentAmount));
     setDownPaymentAmount(entry?.downPaymentAmount ? String(entry.downPaymentAmount) : "");
+    setInstallments(String(entry?.installments || 1));
     const matched = entry?.salespersonName ? findSalesperson(entry.salespersonName) : null;
     setSalespersonName(entry?.salespersonName || matched?.name || "");
     setCommissionPercent(
@@ -622,6 +630,7 @@ function EntryModal({
               saleTotalAmount: type === "receita" ? Number(amount) : null,
               downPaymentAmount:
                 type === "receita" && hasDownPayment ? Number(downPaymentAmount) : null,
+              installments: type === "receita" ? Number(installments) : 1,
               salespersonName: type === "receita" && applyCommission ? salespersonName : null,
               commissionPercent:
                 type === "receita" && applyCommission ? Number(commissionPercent) : null,
@@ -794,6 +803,19 @@ function EntryModal({
               />
             </Field>
           </div>
+          {type === "receita" && (
+            <Field label="Parcelas escolhidas">
+              <Input
+                type="number"
+                min="1"
+                max="120"
+                step="1"
+                value={installments}
+                onChange={(event) => setInstallments(event.target.value)}
+                required
+              />
+            </Field>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
               checked={isRecurring}
@@ -813,6 +835,7 @@ function EntryModal({
                 (type === "receita" &&
                   hasDownPayment &&
                   (downPaymentAmount.trim() === "" || Number(downPaymentAmount) < 0)) ||
+                (type === "receita" && Number(installments) < 1) ||
                 (type === "receita" && applyCommission && !salespersonName.trim())
               }
             >

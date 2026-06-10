@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -16,12 +16,12 @@ import {
 import { DollarSign, Percent, Plus, Receipt, ShoppingBag, Target, TrendingUp } from "lucide-react";
 import {
   addDays,
+  endOfMonth,
   format,
   isSameDay,
   isSameMonth,
   parseISO,
   startOfMonth,
-  startOfWeek,
   subDays,
   subMonths,
 } from "date-fns";
@@ -44,6 +44,7 @@ import {
   formatBRLPrecise,
   getCurrentStore,
   getGoals,
+  listEntryMonths,
   getPlanCapabilities,
   listEntries,
 } from "@/lib/data";
@@ -57,16 +58,8 @@ export const Route = createFileRoute("/_app/dashboard")({
 function DashboardPage() {
   const { session } = useSession();
   const today = useMemo(() => new Date(), []);
-  const months = useMemo(
-    () =>
-      Array.from({ length: 12 }).map((_, index) => {
-        const date = startOfMonth(subMonths(today, index));
-        return { value: date.toISOString(), label: format(date, "MMMM/yyyy", { locale: ptBR }) };
-      }),
-    [today],
-  );
-  const [selectedMonth, setSelectedMonth] = useState(months[0].value);
-  const [selectedWeek, setSelectedWeek] = useState("1");
+  const [selectedMonth, setSelectedMonth] = useState(startOfMonth(today).toISOString());
+  const [selectedWeek, setSelectedWeek] = useState(() => String(getMonthWeek(today)));
   const [selectedSalesperson, setSelectedSalesperson] = useState("todos");
   const monthStart = parseISO(selectedMonth);
   const previousMonth = startOfMonth(subMonths(monthStart, 1));
@@ -76,6 +69,31 @@ function DashboardPage() {
     queryFn: () => getCurrentStore(session!.profile),
     enabled: Boolean(session),
   });
+
+  const { data: entryMonths = [], isLoading: loadingMonths } = useQuery({
+    queryKey: ["entry-months", store?.id],
+    queryFn: () => listEntryMonths(store!.id),
+    enabled: Boolean(store?.id),
+  });
+
+  const months = useMemo(() => {
+    const values = entryMonths.length
+      ? entryMonths
+      : [startOfMonth(today).toISOString().slice(0, 10)];
+    return values.map((value) => {
+      const date = startOfMonth(parseISO(value));
+      return { value: date.toISOString(), label: format(date, "MMMM/yyyy", { locale: ptBR }) };
+    });
+  }, [entryMonths, today]);
+
+  useEffect(() => {
+    if (!months.length) return;
+    if (!months.some((month) => month.value === selectedMonth)) {
+      const nextMonth = months[0].value;
+      setSelectedMonth(nextMonth);
+      setSelectedWeek(isSameMonth(parseISO(nextMonth), today) ? String(getMonthWeek(today)) : "1");
+    }
+  }, [months, selectedMonth, today]);
 
   const { data: goals = { revenue: 0, margin: 0, maxExpenses: 0 } } = useQuery({
     queryKey: ["goals", store?.id, monthStart.toISOString()],
@@ -94,7 +112,7 @@ function DashboardPage() {
     enabled: Boolean(store?.id),
   });
 
-  if (loadingStore || loadingEntries)
+  if (loadingStore || loadingEntries || loadingMonths)
     return <div className="text-sm text-muted-foreground">Carregando dashboard...</div>;
   if (!store)
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada à sua conta.</div>;
@@ -119,11 +137,12 @@ function DashboardPage() {
   const goalProgress = goals.revenue ? (revenue / goals.revenue) * 100 : 0;
   const isAttendant = store.memberRole === "atendente";
 
-  const selectedWeekStart = addDays(
-    startOfWeek(monthStart, { weekStartsOn: 1 }),
-    (Number(selectedWeek) - 1) * 7,
-  );
-  const weeklyRevenueData = Array.from({ length: 7 }).map((_, index) => {
+  const selectedWeekStart = addDays(startOfMonth(monthStart), (Number(selectedWeek) - 1) * 7);
+  const selectedWeekEnd =
+    Number(selectedWeek) === 4 ? endOfMonth(monthStart) : addDays(selectedWeekStart, 6);
+  const weeklyRevenueData = Array.from({
+    length: selectedWeekEnd.getDate() - selectedWeekStart.getDate() + 1,
+  }).map((_, index) => {
     const day = addDays(selectedWeekStart, index);
     const dayEntries = currentEntries.filter((entry) => isSameDay(parseISO(entry.date), day));
     return {
@@ -131,6 +150,14 @@ function DashboardPage() {
       receita: sumBy(dayEntries, "receita"),
     };
   });
+  const dailyRevenueValues = Array.from({ length: endOfMonth(monthStart).getDate() }).map(
+    (_, index) => {
+      const day = addDays(startOfMonth(monthStart), index);
+      const dayEntries = currentEntries.filter((entry) => isSameDay(parseISO(entry.date), day));
+      return sumBy(dayEntries, "receita");
+    },
+  );
+  const weeklyRevenueTicks = buildChartTicks(dailyRevenueValues);
 
   const expensesByCat = currentEntries
     .filter((entry) => entry.type === "despesa")
@@ -277,7 +304,9 @@ function DashboardPage() {
               value={selectedMonth}
               onValueChange={(value) => {
                 setSelectedMonth(value);
-                setSelectedWeek("1");
+                setSelectedWeek(
+                  isSameMonth(parseISO(value), today) ? String(getMonthWeek(today)) : "1",
+                );
               }}
             >
               <SelectTrigger className="h-8 w-[180px]">
@@ -475,7 +504,9 @@ function DashboardPage() {
                   tick={{ fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(value) => `R$${(Number(value) / 1000).toFixed(0)}k`}
+                  ticks={weeklyRevenueTicks}
+                  domain={[0, weeklyRevenueTicks[weeklyRevenueTicks.length - 1] || 0]}
+                  tickFormatter={(value) => formatCurrencyTick(Number(value))}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Area
@@ -585,6 +616,7 @@ function DashboardPage() {
                     <th>Responsavel</th>
                     <th>Descrição</th>
                     <th>Pagamento</th>
+                    <th className="text-right">Parcelas</th>
                     <th className="text-right">Valor</th>
                   </tr>
                 </thead>
@@ -608,6 +640,9 @@ function DashboardPage() {
                         {entry.description}
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground">{entry.paymentMethod}</td>
+                      <td className="px-4 py-2.5 text-right text-muted-foreground">
+                        {entry.type === "receita" ? `${entry.installments || 1}x` : "-"}
+                      </td>
                       <td
                         className={cn(
                           "px-4 py-2.5 text-right font-medium tabular-nums",
@@ -635,6 +670,33 @@ function buildExpenseTicks(values: number[]) {
   if (max <= 20000) return [0, 5000, 10000, 15000, 20000];
   if (max <= 100000) return [0, 10000, 20000, 50000, 70000, 90000];
   return [0, 100000, 250000, 500000, 750000, 1000000];
+}
+
+function getMonthWeek(date: Date) {
+  return Math.min(4, Math.max(1, Math.ceil(date.getDate() / 7)));
+}
+
+function buildChartTicks(values: number[]) {
+  const max = Math.max(...values, 0);
+  const ceiling = max > 0 ? getNiceCeiling(max) : 1000;
+  return Array.from({ length: 5 }).map((_, index) => Math.round((ceiling / 4) * index));
+}
+
+function getNiceCeiling(value: number) {
+  if (value <= 100) return Math.ceil(value / 10) * 10;
+  if (value <= 1000) return Math.ceil(value / 100) * 100;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const step = magnitude / 2;
+  return Math.ceil(value / step) * step;
+}
+
+function formatCurrencyTick(value: number) {
+  if (value >= 1000) {
+    return `R$${Number(value / 1000).toLocaleString("pt-BR", {
+      maximumFractionDigits: value >= 10000 ? 0 : 1,
+    })}k`;
+  }
+  return formatBRL(value);
 }
 
 function formatCompactNumber(value: number) {

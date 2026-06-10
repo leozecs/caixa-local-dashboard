@@ -66,8 +66,11 @@ export interface Entry {
   commissionPercent?: number | null;
   commissionAmount?: number;
   downPaymentAmount?: number | null;
+  installments?: number;
   importSource?: string | null;
   isRecurring?: boolean;
+  recurringParentId?: string | null;
+  recurringMonth?: string | null;
 }
 
 export interface StoreCategory {
@@ -238,8 +241,11 @@ type EntryRow = {
   commission_percent?: number | null;
   commission_amount?: number | null;
   down_payment_amount?: number | null;
+  installments?: number | null;
   import_source?: string | null;
   is_recurring?: boolean | null;
+  recurring_parent_id?: string | null;
+  recurring_month?: string | null;
 };
 
 type StoreCategoryDbRow = {
@@ -444,6 +450,93 @@ function monthRange(month = new Date()) {
   };
 }
 
+function formatDateKey(date: Date) {
+  return format(date, "yyyy-MM-dd");
+}
+
+function recurringMaterializationEnd(end: string) {
+  const requestedEnd = parseISO(end);
+  const currentMonthEnd = addMonths(startOfMonth(new Date()), 1);
+  return requestedEnd.getTime() < currentMonthEnd.getTime() ? requestedEnd : currentMonthEnd;
+}
+
+function monthlyOccurrenceDate(seedDate: Date, month: Date) {
+  const day = seedDate.getDate();
+  const monthEnd = endOfMonth(month).getDate();
+  return new Date(month.getFullYear(), month.getMonth(), Math.min(day, monthEnd));
+}
+
+async function ensureRecurringEntries(
+  client: ReturnType<typeof requireSupabase>,
+  storeId: string,
+  start: string,
+  end: string,
+) {
+  const rangeStart = parseISO(start);
+  const rangeEnd = recurringMaterializationEnd(end);
+  if (rangeEnd.getTime() <= rangeStart.getTime()) return;
+
+  const { data: seeds, error } = await client
+    .from("financial_entries")
+    .select("*")
+    .eq("store_id", storeId)
+    .eq("is_recurring", true)
+    .is("recurring_parent_id", null)
+    .lt("entry_date", formatDateKey(rangeEnd));
+
+  if (error) throw error;
+  if (!seeds?.length) return;
+
+  const rows = (seeds as EntryRow[]).flatMap((seed) => {
+    const seedDate = parseISO(seed.entry_date);
+    const seedMonth = startOfMonth(seedDate);
+    const occurrences: Array<Record<string, unknown>> = [];
+    let cursor = seedMonth;
+
+    while (cursor.getTime() < rangeEnd.getTime()) {
+      const occurrenceDate = monthlyOccurrenceDate(seedDate, cursor);
+      const isSeedMonth = cursor.getTime() === seedMonth.getTime();
+      const isInRange =
+        occurrenceDate.getTime() >= rangeStart.getTime() &&
+        occurrenceDate.getTime() < rangeEnd.getTime();
+
+      if (!isSeedMonth && isInRange) {
+        occurrences.push({
+          store_id: seed.store_id,
+          entry_date: formatDateKey(occurrenceDate),
+          type: seed.type,
+          category: seed.category,
+          description: seed.description,
+          payment_method: seed.payment_method,
+          amount: seed.amount,
+          sale_total_amount: seed.sale_total_amount ?? null,
+          salesperson_name: seed.salesperson_name ?? null,
+          commission_percent: seed.commission_percent ?? null,
+          commission_amount: seed.commission_amount ?? 0,
+          down_payment_amount: seed.down_payment_amount ?? null,
+          installments: seed.installments ?? 1,
+          import_source: seed.import_source ?? null,
+          is_recurring: true,
+          recurring_parent_id: seed.id,
+          recurring_month: formatDateKey(cursor),
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      cursor = addMonths(cursor, 1);
+    }
+
+    return occurrences;
+  });
+
+  if (!rows.length) return;
+
+  const { error: upsertError } = await client.from("financial_entries").upsert(rows, {
+    onConflict: "store_id,recurring_parent_id,recurring_month",
+  });
+  if (upsertError) throw upsertError;
+}
+
 function toEntry(row: EntryRow): Entry {
   return {
     id: row.id,
@@ -468,8 +561,11 @@ function toEntry(row: EntryRow): Entry {
       row.down_payment_amount === null || row.down_payment_amount === undefined
         ? null
         : row.down_payment_amount / 100,
+    installments: row.installments ?? 1,
     importSource: row.import_source || null,
     isRecurring: Boolean(row.is_recurring),
+    recurringParentId: row.recurring_parent_id || null,
+    recurringMonth: row.recurring_month || null,
   };
 }
 
@@ -1269,6 +1365,7 @@ export async function updateStorePlan(input: { storeId: string; plan: Plan; stat
 export async function listEntries(storeId: string, start?: string, end?: string) {
   const client = requireSupabase();
   const range = start && end ? { start, end } : monthRange();
+  await ensureRecurringEntries(client, storeId, range.start, range.end);
   const { data, error } = await client
     .from("financial_entries")
     .select("*")
@@ -1280,6 +1377,34 @@ export async function listEntries(storeId: string, start?: string, end?: string)
 
   if (error) throw error;
   return (data || []).map((row) => toEntry(row as EntryRow));
+}
+
+export async function listEntryMonths(storeId: string) {
+  const client = requireSupabase();
+  await ensureRecurringEntries(
+    client,
+    storeId,
+    "2000-01-01",
+    addMonths(startOfMonth(new Date()), 1).toISOString().slice(0, 10),
+  );
+
+  const { data, error } = await client
+    .from("financial_entries")
+    .select("entry_date")
+    .eq("store_id", storeId)
+    .order("entry_date", { ascending: false });
+
+  if (error) throw error;
+
+  return Array.from(
+    new Set(
+      (data || []).map((row) =>
+        startOfMonth(parseISO(String(row.entry_date)))
+          .toISOString()
+          .slice(0, 10),
+      ),
+    ),
+  );
 }
 
 export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
@@ -1317,6 +1442,10 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
       entry.downPaymentAmount !== undefined
         ? Math.round(entry.downPaymentAmount * 100)
         : null,
+    installments:
+      entry.type === "receita"
+        ? Math.max(1, Math.min(120, Math.round(entry.installments || 1)))
+        : 1,
     import_source: entry.importSource?.trim() || null,
     is_recurring: Boolean(entry.isRecurring),
     updated_at: new Date().toISOString(),

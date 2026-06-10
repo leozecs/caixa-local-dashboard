@@ -137,6 +137,7 @@ function RelatoriosPage() {
     onSuccess: (_data, rows) => {
       queryClient.invalidateQueries({ queryKey: ["entries"] });
       queryClient.invalidateQueries({ queryKey: ["entries-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["entry-months"] });
       queryClient.invalidateQueries({ queryKey: ["monthly-history"] });
       queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
       toast.success(`${rows.length} lancamento(s) importado(s).`);
@@ -156,6 +157,7 @@ function RelatoriosPage() {
     onSuccess: (_data, source) => {
       queryClient.invalidateQueries({ queryKey: ["entries"] });
       queryClient.invalidateQueries({ queryKey: ["entries-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["entry-months"] });
       queryClient.invalidateQueries({ queryKey: ["monthly-history"] });
       queryClient.invalidateQueries({ queryKey: ["store-operational-alerts"] });
       toast.success(`Arquivo ${source} removido dos relatorios.`);
