@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { format, parseISO } from "date-fns";
+import { format, isSameMonth, parseISO, startOfMonth } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import {
   ExternalLink,
   Filter,
@@ -58,6 +59,7 @@ import {
   getCurrentStore,
   listEntryAttachments,
   listEntries,
+  listEntryMonths,
   listStoreAttendants,
   listStoreCategories,
   openEntryAttachment,
@@ -86,6 +88,7 @@ function LancamentosPage() {
   const [editing, setEditing] = useState<Entry | null>(null);
   const [deleting, setDeleting] = useState<Entry | null>(null);
   const [attachmentEntry, setAttachmentEntry] = useState<Entry | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState(startOfMonth(new Date()).toISOString());
 
   const { data: store } = useQuery({
     queryKey: ["current-store", session?.profile.id],
@@ -96,6 +99,11 @@ function LancamentosPage() {
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ["entries", store?.id],
     queryFn: () => listEntries(store!.id, "2000-01-01", "2100-01-01"),
+    enabled: Boolean(store?.id),
+  });
+  const { data: entryMonths = [] } = useQuery({
+    queryKey: ["entry-months", store?.id],
+    queryFn: () => listEntryMonths(store!.id),
     enabled: Boolean(store?.id),
   });
   const { data: storeCategories = [] } = useQuery({
@@ -139,7 +147,9 @@ function LancamentosPage() {
   });
 
   const filtered = useMemo(() => {
+    const selectedDate = parseISO(selectedMonth);
     return entries
+      .filter((entry) => isSameMonth(parseISO(entry.date), selectedDate))
       .filter((entry) => (filterCat === "todas" ? true : entry.category === filterCat))
       .filter((entry) =>
         search
@@ -148,7 +158,23 @@ function LancamentosPage() {
             (entry.salespersonName ?? "").toLowerCase().includes(search.toLowerCase())
           : true,
       );
-  }, [entries, filterCat, search]);
+  }, [entries, filterCat, search, selectedMonth]);
+
+  const months = useMemo(() => {
+    const values = entryMonths.length
+      ? entryMonths
+      : [startOfMonth(new Date()).toISOString().slice(0, 10)];
+    return values.map((value) => {
+      const date = startOfMonth(parseISO(value));
+      return { value: date.toISOString(), label: format(date, "MMMM/yyyy", { locale: ptBR }) };
+    });
+  }, [entryMonths]);
+
+  useEffect(() => {
+    if (months.length && !months.some((month) => month.value === selectedMonth)) {
+      setSelectedMonth(months[0].value);
+    }
+  }, [months, selectedMonth]);
 
   const receitaCategories = useMemo(
     () =>
@@ -187,6 +213,7 @@ function LancamentosPage() {
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
   const canManageEntries = true;
   const canManageAttachments = store.memberRole !== "atendente";
+  const isPersonalProfile = store.profileType === "pessoal";
 
   function openCreate(type: EntryType) {
     setEditing(null);
@@ -219,9 +246,21 @@ function LancamentosPage() {
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="text-sm text-muted-foreground">
-          Use o filtro para conferir categorias especificas sem esconder receitas ou despesas.
+          Mostrando os 10 lancamentos mais recentes do mes selecionado.
         </div>
         <div className="flex items-center gap-2">
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="h-8 w-[190px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {months.map((month) => (
+                <SelectItem key={month.value} value={month.value}>
+                  {month.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div className="relative">
             <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -256,6 +295,7 @@ function LancamentosPage() {
           isLoading={isLoading}
           onAdd={() => openCreate("receita")}
           canManage={canManageEntries}
+          isPersonalProfile={isPersonalProfile}
           onEdit={(entry) => {
             setEditing(entry);
             setCreatingType(entry.type);
@@ -272,6 +312,7 @@ function LancamentosPage() {
           isLoading={isLoading}
           onAdd={() => openCreate("despesa")}
           canManage={canManageEntries}
+          isPersonalProfile={isPersonalProfile}
           onEdit={(entry) => {
             setEditing(entry);
             setCreatingType(entry.type);
@@ -291,6 +332,7 @@ function LancamentosPage() {
         }}
         entry={editing}
         storeId={store.id}
+        profileType={store.profileType}
         defaultCommissionPercent={store.defaultCommissionPercent}
         attendants={attendants}
         receitaCategories={modalReceitaCategories}
@@ -335,6 +377,7 @@ function EntriesTable({
   isLoading,
   onAdd,
   canManage,
+  isPersonalProfile,
   canManageAttachments,
   onEdit,
   onDelete,
@@ -346,6 +389,7 @@ function EntriesTable({
   isLoading: boolean;
   onAdd: () => void;
   canManage: boolean;
+  isPersonalProfile: boolean;
   canManageAttachments: boolean;
   onEdit: (entry: Entry) => void;
   onDelete: (entry: Entry) => void;
@@ -370,97 +414,96 @@ function EntriesTable({
         ) : entries.length === 0 ? (
           <EmptyTable type={type} onAdd={onAdd} />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-muted-foreground border-b border-border bg-muted/40">
-                <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
-                  <th>Data</th>
-                  <th>Categoria</th>
-                  <th>Responsavel</th>
-                  <th>Descricao</th>
-                  <th className="text-right">Entrada</th>
-                  <th className="text-right">Parcelas</th>
-                  <th className="text-right">Comissao</th>
-                  <th className="text-right">Valor</th>
-                  {canManage && <th className="text-right w-[88px]">Acoes</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/30"
-                  >
-                    <td className="px-3 py-2.5 text-muted-foreground">
-                      {format(parseISO(entry.date), "dd/MM/yyyy")}
-                    </td>
-                    <td className="px-3 py-2.5">{entry.category}</td>
-                    <td className="px-3 py-2.5 text-muted-foreground">
-                      {entry.type === "receita" ? entry.salespersonName || "-" : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[220px]">
-                      {entry.isRecurring ? "Recorrente - " : ""}
-                      {entry.description || "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
-                      {entry.type === "receita" && entry.downPaymentAmount
-                        ? formatBRLPrecise(entry.downPaymentAmount)
-                        : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
-                      {entry.type === "receita" ? `${entry.installments || 1}x` : "-"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
-                      {entry.type === "receita" && entry.commissionAmount
-                        ? formatBRLPrecise(entry.commissionAmount)
-                        : "-"}
-                    </td>
-                    <td
-                      className={cn(
-                        "px-3 py-2.5 text-right font-medium tabular-nums",
-                        entry.type === "receita" ? "text-success" : "text-destructive",
-                      )}
-                    >
-                      {entry.type === "receita" ? "+" : "-"}{" "}
-                      {formatBRLPrecise(entry.saleTotalAmount ?? entry.amount)}
-                    </td>
-                    {canManage && (
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center justify-end gap-1">
-                          {canManageAttachments && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => onAttachments(entry)}
-                              aria-label="Comprovantes"
-                            >
-                              <Paperclip className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => onEdit(entry)}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => onDelete(entry)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </td>
+          <div className="divide-y divide-border">
+            {entries.slice(0, 10).map((entry) => (
+              <div
+                key={entry.id}
+                className="grid gap-3 px-4 py-3 transition-colors hover:bg-muted/30 md:grid-cols-[96px_1fr_auto]"
+              >
+                <div className="text-sm text-muted-foreground">
+                  {format(parseISO(entry.date), "dd/MM/yyyy")}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{entry.category}</span>
+                    {entry.isRecurring && (
+                      <Badge variant="outline" className="h-5 px-1.5 text-[11px] font-normal">
+                        Recorrente
+                      </Badge>
                     )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    {entry.type === "receita" && (entry.installments || 1) > 1 && (
+                      <Badge variant="outline" className="h-5 px-1.5 text-[11px] font-normal">
+                        {entry.installments}x
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                    {entry.description || "Sem descricao"}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>{entry.paymentMethod}</span>
+                    {entry.type === "receita" && !isPersonalProfile && entry.salespersonName && (
+                      <span>{entry.salespersonName}</span>
+                    )}
+                    {entry.type === "receita" && entry.downPaymentAmount ? (
+                      <span>Entrada {formatBRLPrecise(entry.downPaymentAmount)}</span>
+                    ) : null}
+                    {entry.type === "receita" && !isPersonalProfile && entry.commissionAmount ? (
+                      <span>Comissao {formatBRLPrecise(entry.commissionAmount)}</span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3 md:justify-end">
+                  <div
+                    className={cn(
+                      "text-right text-sm font-semibold tabular-nums",
+                      entry.type === "receita" ? "text-success" : "text-destructive",
+                    )}
+                  >
+                    {entry.type === "receita" ? "+" : "-"}{" "}
+                    {formatBRLPrecise(entry.saleTotalAmount ?? entry.amount)}
+                  </div>
+                  {canManage && (
+                    <div className="flex items-center justify-end gap-1">
+                      {canManageAttachments && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => onAttachments(entry)}
+                          aria-label="Comprovantes"
+                        >
+                          <Paperclip className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => onEdit(entry)}
+                        aria-label="Editar lancamento"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => onDelete(entry)}
+                        aria-label="Excluir lancamento"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {entries.length > 10 && (
+              <div className="px-4 py-3 text-center text-xs text-muted-foreground">
+                Exibindo os 10 mais recentes deste mes.
+              </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -508,6 +551,7 @@ function EntryModal({
   onOpenChange,
   entry,
   storeId,
+  profileType,
   defaultCommissionPercent,
   attendants,
   receitaCategories,
@@ -520,6 +564,7 @@ function EntryModal({
   onOpenChange: (open: boolean) => void;
   entry: Entry | null;
   storeId: string;
+  profileType: "vendas" | "pessoal";
   defaultCommissionPercent: number;
   attendants: StoreAttendant[];
   receitaCategories: string[];
@@ -542,11 +587,20 @@ function EntryModal({
         ? String(entry.amount)
         : "",
   );
+  const [productCostAmount, setProductCostAmount] = useState(
+    entry?.productCostAmount ? String(entry.productCostAmount) : "",
+  );
   const [hasDownPayment, setHasDownPayment] = useState(Boolean(entry?.downPaymentAmount));
   const [downPaymentAmount, setDownPaymentAmount] = useState(
     entry?.downPaymentAmount ? String(entry.downPaymentAmount) : "",
   );
   const [installments, setInstallments] = useState(String(entry?.installments || 1));
+  const [useInstallmentAmount, setUseInstallmentAmount] = useState(
+    Boolean((entry?.installments || 1) > 1 && entry?.saleTotalAmount && entry.amount),
+  );
+  const [installmentAmount, setInstallmentAmount] = useState(
+    entry?.amount ? String(entry.amount) : "",
+  );
   const [salespersonName, setSalespersonName] = useState(entry?.salespersonName || "");
   const [commissionPercent, setCommissionPercent] = useState(
     String(entry?.commissionPercent ?? defaultCommissionPercent),
@@ -583,9 +637,14 @@ function EntryModal({
           ? String(entry.amount)
           : "",
     );
+    setProductCostAmount(entry?.productCostAmount ? String(entry.productCostAmount) : "");
     setHasDownPayment(Boolean(entry?.downPaymentAmount));
     setDownPaymentAmount(entry?.downPaymentAmount ? String(entry.downPaymentAmount) : "");
     setInstallments(String(entry?.installments || 1));
+    setUseInstallmentAmount(
+      Boolean((entry?.installments || 1) > 1 && entry?.saleTotalAmount && entry.amount),
+    );
+    setInstallmentAmount(entry?.amount ? String(entry.amount) : "");
     const matched = entry?.salespersonName ? findSalesperson(entry.salespersonName) : null;
     setSalespersonName(entry?.salespersonName || matched?.name || "");
     setCommissionPercent(
@@ -605,6 +664,10 @@ function EntryModal({
   ]);
 
   const categories = type === "receita" ? receitaCategories : despesaCategories;
+  const installmentCount = Math.max(1, Math.round(Number(installments) || 1));
+  const amountNumber = Number(amount);
+  const installmentAmountNumber = Number(installmentAmount);
+  const isPersonalProfile = profileType === "pessoal";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -626,15 +689,28 @@ function EntryModal({
               description,
               paymentMethod,
               amount:
-                type === "receita" && hasDownPayment ? Number(downPaymentAmount) : Number(amount),
+                type === "receita" && installmentCount > 1 && useInstallmentAmount
+                  ? installmentAmountNumber
+                  : type === "receita" && hasDownPayment
+                    ? Number(downPaymentAmount)
+                    : amountNumber,
               saleTotalAmount: type === "receita" ? Number(amount) : null,
+              productCostAmount:
+                type === "receita" && !isPersonalProfile && productCostAmount.trim() !== ""
+                  ? Number(productCostAmount)
+                  : null,
               downPaymentAmount:
                 type === "receita" && hasDownPayment ? Number(downPaymentAmount) : null,
-              installments: type === "receita" ? Number(installments) : 1,
-              salespersonName: type === "receita" && applyCommission ? salespersonName : null,
+              installments: type === "receita" ? installmentCount : 1,
+              salespersonName:
+                type === "receita" && applyCommission && !isPersonalProfile
+                  ? salespersonName
+                  : null,
               commissionPercent:
-                type === "receita" && applyCommission ? Number(commissionPercent) : null,
-              isRecurring,
+                type === "receita" && applyCommission && !isPersonalProfile
+                  ? Number(commissionPercent)
+                  : null,
+              isRecurring: type === "receita" && installmentCount > 1 ? true : isRecurring,
             });
           }}
         >
@@ -700,14 +776,28 @@ function EntryModal({
                   />
                 </Field>
               )}
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={applyCommission}
-                  onCheckedChange={(checked) => setApplyCommission(checked === true)}
-                />
-                Calcular comissao deste lancamento
-              </label>
-              {applyCommission && (
+              {!isPersonalProfile && (
+                <Field label="Custo do produto/servico (R$)">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={productCostAmount}
+                    onChange={(event) => setProductCostAmount(event.target.value)}
+                    placeholder="Opcional para calcular margem sobre produto"
+                  />
+                </Field>
+              )}
+              {!isPersonalProfile && (
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={applyCommission}
+                    onCheckedChange={(checked) => setApplyCommission(checked === true)}
+                  />
+                  Calcular comissao deste lancamento
+                </label>
+              )}
+              {applyCommission && !isPersonalProfile && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="Responsavel pela venda">
                     {attendants.length ? (
@@ -811,14 +901,57 @@ function EntryModal({
                 max="120"
                 step="1"
                 value={installments}
-                onChange={(event) => setInstallments(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setInstallments(value);
+                  if (Number(value) > 1) {
+                    setUseInstallmentAmount(true);
+                    setIsRecurring(true);
+                    if (!installmentAmount && Number(amount) > 0) {
+                      setInstallmentAmount(String(Number(amount) / Number(value)));
+                    }
+                  }
+                }}
                 required
               />
             </Field>
           )}
+          {type === "receita" && installmentCount > 1 && (
+            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-3">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={useInstallmentAmount}
+                  onCheckedChange={(checked) => setUseInstallmentAmount(checked === true)}
+                />
+                Lançar no faturamento apenas o valor da parcela
+              </label>
+              {useInstallmentAmount && (
+                <Field label="Valor de cada parcela (R$)">
+                  <Input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={installmentAmount}
+                    onChange={(event) => setInstallmentAmount(event.target.value)}
+                    placeholder={
+                      amountNumber > 0
+                        ? String((amountNumber / installmentCount).toFixed(2))
+                        : "0,00"
+                    }
+                    required
+                  />
+                </Field>
+              )}
+              <div className="text-xs text-muted-foreground">
+                O sistema cria uma parcela por mes ate completar {installmentCount} parcelas. O
+                valor total da venda continua salvo para controle e comissao.
+              </div>
+            </div>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
-              checked={isRecurring}
+              checked={isRecurring || (type === "receita" && installmentCount > 1)}
+              disabled={type === "receita" && installmentCount > 1}
               onCheckedChange={(checked) => setIsRecurring(checked === true)}
             />
             Lancamento recorrente
@@ -833,10 +966,21 @@ function EntryModal({
                 pending ||
                 Number(amount) <= 0 ||
                 (type === "receita" &&
+                  installmentCount > 1 &&
+                  useInstallmentAmount &&
+                  (installmentAmount.trim() === "" || installmentAmountNumber <= 0)) ||
+                (type === "receita" &&
                   hasDownPayment &&
                   (downPaymentAmount.trim() === "" || Number(downPaymentAmount) < 0)) ||
                 (type === "receita" && Number(installments) < 1) ||
-                (type === "receita" && applyCommission && !salespersonName.trim())
+                (type === "receita" &&
+                  !isPersonalProfile &&
+                  productCostAmount.trim() !== "" &&
+                  Number(productCostAmount) < 0) ||
+                (type === "receita" &&
+                  !isPersonalProfile &&
+                  applyCommission &&
+                  !salespersonName.trim())
               }
             >
               {pending ? "Salvando..." : "Salvar"}

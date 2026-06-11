@@ -19,6 +19,7 @@ import { Route as AppLancamentosRouteImport } from './routes/_app.lancamentos'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppConsultorIaRouteImport } from './routes/_app.consultor-ia'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app.configuracoes'
+import { Route as AppAssinaturasRouteImport } from './routes/_app.assinaturas'
 import { Route as AppAlertasRouteImport } from './routes/_app.alertas'
 import { Route as AppAdminRouteImport } from './routes/_app.admin'
 import { Route as AppAdminIndexRouteImport } from './routes/_app.admin.index'
@@ -77,6 +78,11 @@ const AppConfiguracoesRoute = AppConfiguracoesRouteImport.update({
   path: '/configuracoes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAssinaturasRoute = AppAssinaturasRouteImport.update({
+  id: '/assinaturas',
+  path: '/assinaturas',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAlertasRoute = AppAlertasRouteImport.update({
   id: '/alertas',
   path: '/alertas',
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AppAdminRouteWithChildren
   '/alertas': typeof AppAlertasRoute
+  '/assinaturas': typeof AppAssinaturasRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/consultor-ia': typeof AppConsultorIaRoute
   '/dashboard': typeof AppDashboardRoute
@@ -142,6 +149,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/alertas': typeof AppAlertasRoute
+  '/assinaturas': typeof AppAssinaturasRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/consultor-ia': typeof AppConsultorIaRoute
   '/dashboard': typeof AppDashboardRoute
@@ -163,6 +171,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/_app/admin': typeof AppAdminRouteWithChildren
   '/_app/alertas': typeof AppAlertasRoute
+  '/_app/assinaturas': typeof AppAssinaturasRoute
   '/_app/configuracoes': typeof AppConfiguracoesRoute
   '/_app/consultor-ia': typeof AppConsultorIaRoute
   '/_app/dashboard': typeof AppDashboardRoute
@@ -184,6 +193,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/admin'
     | '/alertas'
+    | '/assinaturas'
     | '/configuracoes'
     | '/consultor-ia'
     | '/dashboard'
@@ -202,6 +212,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/alertas'
+    | '/assinaturas'
     | '/configuracoes'
     | '/consultor-ia'
     | '/dashboard'
@@ -222,6 +233,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/_app/admin'
     | '/_app/alertas'
+    | '/_app/assinaturas'
     | '/_app/configuracoes'
     | '/_app/consultor-ia'
     | '/_app/dashboard'
@@ -315,6 +327,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConfiguracoesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/assinaturas': {
+      id: '/_app/assinaturas'
+      path: '/assinaturas'
+      fullPath: '/assinaturas'
+      preLoaderRoute: typeof AppAssinaturasRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/alertas': {
       id: '/_app/alertas'
       path: '/alertas'
@@ -399,6 +418,7 @@ const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
 interface AppRouteChildren {
   AppAdminRoute: typeof AppAdminRouteWithChildren
   AppAlertasRoute: typeof AppAlertasRoute
+  AppAssinaturasRoute: typeof AppAssinaturasRoute
   AppConfiguracoesRoute: typeof AppConfiguracoesRoute
   AppConsultorIaRoute: typeof AppConsultorIaRoute
   AppDashboardRoute: typeof AppDashboardRoute
@@ -410,6 +430,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAdminRoute: AppAdminRouteWithChildren,
   AppAlertasRoute: AppAlertasRoute,
+  AppAssinaturasRoute: AppAssinaturasRoute,
   AppConfiguracoesRoute: AppConfiguracoesRoute,
   AppConsultorIaRoute: AppConsultorIaRoute,
   AppDashboardRoute: AppDashboardRoute,

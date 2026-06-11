@@ -31,6 +31,21 @@ type InsightResponse = {
   actions: string[];
 };
 
+const GESTAO_LOCAL_IMPROVEMENTS = [
+  "Comparar o dia atual com a media diaria necessaria para bater a meta.",
+  "Avisar quando uma categoria de despesa cresce acima do padrao do mes.",
+  "Separar margem de produto da margem operacional da loja.",
+  "Sugerir revisao de preco quando custo do produto reduz a margem.",
+  "Mostrar oportunidades por forma de pagamento, incluindo taxa e prazo.",
+  "Detectar dias fracos da semana e sugerir acao comercial simples.",
+  "Apontar categorias sem lancamento recente para evitar caixa incompleto.",
+  "Alertar sobre recorrencias que vencem antes do fechamento mensal.",
+  "Transformar importacoes em uma checklist de conciliacao antes de salvar.",
+  "Gerar resumo semanal curto para owner e atendentes autorizados.",
+  "Separar leitura para perfil pessoal, sem comissao, ticket medio ou equipe.",
+  "Criar plano de acao mensal com tres prioridades e prazo claro.",
+] as const;
+
 function ConsultorIaPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
@@ -207,6 +222,26 @@ function ConsultorIaPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Card className="shadow-none">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">
+            Melhorias recomendadas para o Gestao Local
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {GESTAO_LOCAL_IMPROVEMENTS.map((item, index) => (
+              <div key={item} className="rounded-md border border-border px-3 py-2">
+                <div className="text-xs font-medium text-muted-foreground">
+                  {String(index + 1).padStart(2, "0")}
+                </div>
+                <div className="mt-1 text-sm leading-snug">{item}</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -237,7 +272,13 @@ function buildMetrics({
   monthStart,
   previousMonth,
 }: {
-  store: { name: string; segment: string; city: string };
+  store: {
+    name: string;
+    segment: string;
+    city: string;
+    profileType?: "vendas" | "pessoal";
+    personalFocus?: string | null;
+  };
   goals: { revenue: number; margin: number; maxExpenses: number };
   entries: Entry[];
   monthStart: Date;
@@ -253,6 +294,8 @@ function buildMetrics({
       name: store.name,
       segment: store.segment,
       city: store.city,
+      profileType: store.profileType || "vendas",
+      personalFocus: store.personalFocus || null,
     },
     period: format(monthStart, "yyyy-MM"),
     goals,
@@ -274,12 +317,25 @@ function summarizeEntries(entries: Entry[]) {
   const revenue = revenueEntries.reduce((sum, entry) => sum + entry.amount, 0);
   const expenses = expenseEntries.reduce((sum, entry) => sum + entry.amount, 0);
   const profit = revenue - expenses;
+  const productCost = revenueEntries.reduce(
+    (sum, entry) => sum + (entry.productCostAmount || 0),
+    0,
+  );
+  const productRevenue = revenueEntries
+    .filter((entry) => entry.productCostAmount)
+    .reduce((sum, entry) => sum + (entry.saleTotalAmount ?? entry.amount), 0);
 
   return {
     revenue,
     expenses,
     profit,
-    margin: revenue > 0 ? (profit / revenue) * 100 : 0,
+    margin:
+      productCost > 0
+        ? ((productRevenue - productCost) / productCost) * 100
+        : revenue > 0
+          ? (profit / revenue) * 100
+          : 0,
+    productCost,
     averageTicket: revenueEntries.length ? revenue / revenueEntries.length : 0,
     entryCount: entries.length,
     revenueEntryCount: revenueEntries.length,

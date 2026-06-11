@@ -30,6 +30,7 @@ import {
   formatBRL,
   getCurrentStore,
   getGoals,
+  listEntryMonths,
   listEntries,
   saveGoals,
   type Goals,
@@ -45,16 +46,7 @@ function MetasPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
   const [formGoals, setFormGoals] = useState<Goals>({ revenue: 0, margin: 0, maxExpenses: 0 });
-  const baseDate = useMemo(() => new Date(), []);
-  const months = useMemo(
-    () =>
-      Array.from({ length: 12 }).map((_, index) => {
-        const date = startOfMonth(new Date(baseDate.getFullYear(), baseDate.getMonth() - index, 1));
-        return { value: date.toISOString(), label: formatMonthYear(date) };
-      }),
-    [baseDate],
-  );
-  const [selectedMonth, setSelectedMonth] = useState(months[0].value);
+  const [selectedMonth, setSelectedMonth] = useState(startOfMonth(new Date()).toISOString());
   const now = parseISO(selectedMonth);
 
   const { data: store } = useQuery({
@@ -74,6 +66,26 @@ function MetasPage() {
     queryFn: () => listEntries(store!.id, "2000-01-01", "2100-01-01"),
     enabled: Boolean(store?.id),
   });
+  const { data: entryMonths = [] } = useQuery({
+    queryKey: ["entry-months", store?.id],
+    queryFn: () => listEntryMonths(store!.id),
+    enabled: Boolean(store?.id),
+  });
+  const months = useMemo(() => {
+    const values = entryMonths.length
+      ? entryMonths
+      : [startOfMonth(new Date()).toISOString().slice(0, 10)];
+    return values.map((value) => {
+      const date = startOfMonth(parseISO(value));
+      return { value: date.toISOString(), label: formatMonthYear(date) };
+    });
+  }, [entryMonths]);
+
+  useEffect(() => {
+    if (months.length && !months.some((month) => month.value === selectedMonth)) {
+      setSelectedMonth(months[0].value);
+    }
+  }, [months, selectedMonth]);
 
   useEffect(() => {
     if (goals) setFormGoals(goals);
@@ -98,12 +110,25 @@ function MetasPage() {
     const exp = curr
       .filter((entry) => entry.type === "despesa")
       .reduce((sum, entry) => sum + entry.amount, 0);
-    const margin = rev > 0 ? ((rev - exp) / rev) * 100 : 0;
+    const productCost = curr
+      .filter((entry) => entry.type === "receita")
+      .reduce((sum, entry) => sum + (entry.productCostAmount || 0), 0);
+    const productRevenue = curr
+      .filter((entry) => entry.type === "receita" && entry.productCostAmount)
+      .reduce((sum, entry) => sum + (entry.saleTotalAmount ?? entry.amount), 0);
+    const margin =
+      productCost > 0
+        ? ((productRevenue - productCost) / productCost) * 100
+        : rev > 0
+          ? ((rev - exp) / rev) * 100
+          : 0;
     return { rev, exp, margin };
   }, [entries, now]);
 
   if (!store)
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
+
+  const isPersonalProfile = store.profileType === "pessoal";
 
   return (
     <div className="space-y-5">
@@ -126,7 +151,12 @@ function MetasPage() {
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-3",
+          isPersonalProfile ? "lg:grid-cols-2" : "lg:grid-cols-3",
+        )}
+      >
         <GoalCard
           label="Faturamento"
           current={stats.rev}
@@ -135,14 +165,16 @@ function MetasPage() {
           better="higher"
           icon={TrendingUp}
         />
-        <GoalCard
-          label="Margem minima"
-          current={stats.margin}
-          target={formGoals.margin}
-          format={(value) => `${value.toFixed(1)}%`}
-          better="higher"
-          icon={TargetIcon}
-        />
+        {!isPersonalProfile && (
+          <GoalCard
+            label="Margem minima"
+            current={stats.margin}
+            target={formGoals.margin}
+            format={(value) => `${value.toFixed(1)}%`}
+            better="higher"
+            icon={TargetIcon}
+          />
+        )}
         <GoalCard
           label="Limite de despesas"
           current={stats.exp}
@@ -163,7 +195,10 @@ function MetasPage() {
               event.preventDefault();
               mutation.mutate();
             }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-4"
+            className={cn(
+              "grid grid-cols-1 gap-4",
+              isPersonalProfile ? "md:grid-cols-2" : "md:grid-cols-3",
+            )}
           >
             <Field label="Meta de faturamento (R$)">
               <Input
@@ -179,21 +214,23 @@ function MetasPage() {
                 }
               />
             </Field>
-            <Field label="Margem minima sobre faturamento total (%)">
-              <Input
-                type="number"
-                min="0"
-                max="100"
-                step="0.5"
-                value={formGoals.margin || ""}
-                onChange={(event) =>
-                  setFormGoals((current) => ({
-                    ...current,
-                    margin: event.target.value === "" ? 0 : Number(event.target.value),
-                  }))
-                }
-              />
-            </Field>
+            {!isPersonalProfile && (
+              <Field label="Margem minima sobre produto (%)">
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  value={formGoals.margin || ""}
+                  onChange={(event) =>
+                    setFormGoals((current) => ({
+                      ...current,
+                      margin: event.target.value === "" ? 0 : Number(event.target.value),
+                    }))
+                  }
+                />
+              </Field>
+            )}
             <Field label="Limite de despesas (R$)">
               <Input
                 type="number"
@@ -208,7 +245,12 @@ function MetasPage() {
                 }
               />
             </Field>
-            <div className="md:col-span-3 flex justify-end">
+            <div
+              className={cn(
+                "flex justify-end",
+                isPersonalProfile ? "md:col-span-2" : "md:col-span-3",
+              )}
+            >
               <Button type="submit" size="sm" className="gap-2" disabled={mutation.isPending}>
                 <Save className="h-4 w-4" /> {mutation.isPending ? "Salvando..." : "Salvar metas"}
               </Button>

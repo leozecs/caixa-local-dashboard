@@ -137,13 +137,21 @@ function AdminOverview() {
   );
 }
 
-function StatusBadge({ status }: { status: "ativa" | "pendente" | "trial" | "cancelada" }) {
+function StatusBadge({
+  status,
+}: {
+  status: "ativa" | "pendente" | "trial" | "cancelada" | "bloqueada";
+}) {
   const map = {
     ativa: { label: "Ativa", cls: "border-success/40 text-success bg-success/5" },
     pendente: { label: "Pendente", cls: "border-warning/40 text-warning bg-warning/5" },
     trial: { label: "Trial", cls: "border-info/40 text-info bg-info/5" },
     cancelada: {
       label: "Cancelada",
+      cls: "border-destructive/40 text-destructive bg-destructive/5",
+    },
+    bloqueada: {
+      label: "Bloqueada",
       cls: "border-destructive/40 text-destructive bg-destructive/5",
     },
   }[status];

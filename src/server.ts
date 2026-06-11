@@ -16,7 +16,7 @@ type ServerEntry = {
 
 type EnvRecord = Record<string, string | undefined>;
 type SupabaseUser = { id: string; email?: string };
-type StoreStatus = "ativa" | "pendente" | "trial" | "cancelada";
+type StoreStatus = "ativa" | "pendente" | "trial" | "cancelada" | "bloqueada";
 type StoreMemberRole = "owner" | "atendente";
 type AiInsight = {
   summary: string;
@@ -236,6 +236,21 @@ async function handleLogin(request: Request, env: unknown) {
     return jsonResponse({ message: GENERIC_LOGIN_ERROR }, { status: 401 });
   }
 
+  const authUserId =
+    typeof payload.user === "object" && payload.user !== null && "id" in payload.user
+      ? String((payload.user as { id?: unknown }).id || "")
+      : "";
+  if (authUserId) {
+    const access = await checkSubscriptionLoginAccess(env, authUserId).catch((error) => {
+      console.error("Nao foi possivel validar assinatura no login:", error);
+      return { allowed: true, message: "" };
+    });
+    if (!access.allowed) {
+      registerLoginFailure(ip, email);
+      return jsonResponse({ message: access.message }, { status: 403 });
+    }
+  }
+
   clearLoginFailures(ip, email);
   return jsonResponse({
     access_token: payload.access_token,
@@ -243,6 +258,101 @@ async function handleLogin(request: Request, env: unknown) {
     expires_in: payload.expires_in,
     token_type: payload.token_type,
   });
+}
+
+async function checkSubscriptionLoginAccess(env: unknown, userId: string) {
+  if (!readEnv(env, "SUPABASE_SECRET_KEY") && !readEnv(env, "SUPABASE_SERVICE_ROLE_KEY")) {
+    return { allowed: true, message: "" };
+  }
+
+  const profileResponse = await supabaseAdminFetch(
+    env,
+    `/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=role&limit=1`,
+  );
+  if (!profileResponse.ok) return { allowed: true, message: "" };
+  const profiles = (await profileResponse.json()) as Array<{ role?: string }>;
+  if (profiles[0]?.role === "owner") return { allowed: true, message: "" };
+
+  const memberResponse = await supabaseAdminFetch(
+    env,
+    `/rest/v1/store_members?user_id=eq.${encodeURIComponent(
+      userId,
+    )}&select=store_id,stores(id,status)&limit=20`,
+  );
+  if (!memberResponse.ok) return { allowed: true, message: "" };
+  const memberships = (await memberResponse.json()) as Array<{
+    store_id: string;
+    stores?: { id?: string; status?: StoreStatus } | Array<{ id?: string; status?: StoreStatus }>;
+  }>;
+
+  if (!memberships.length) return { allowed: true, message: "" };
+
+  const statuses = await Promise.all(
+    memberships.map(async (membership) => {
+      const joined = Array.isArray(membership.stores) ? membership.stores[0] : membership.stores;
+      return refreshBlockedSubscription(env, membership.store_id, joined?.status || "pendente");
+    }),
+  );
+
+  const hasAvailableStore = statuses.some((status) => !["bloqueada", "cancelada"].includes(status));
+  return hasAvailableStore
+    ? { allowed: true, message: "" }
+    : {
+        allowed: false,
+        message:
+          "Login bloqueado por assinatura vencida. Envie o comprovante e aguarde a reativacao pelo administrador.",
+      };
+}
+
+async function refreshBlockedSubscription(
+  env: unknown,
+  storeId: string,
+  currentStatus: StoreStatus,
+) {
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/subscriptions?store_id=eq.${encodeURIComponent(
+      storeId,
+    )}&select=id,status,next_charge_date&limit=1`,
+  );
+  if (!response.ok) return currentStatus;
+  const rows = (await response.json()) as Array<{
+    id: string;
+    status?: string;
+    next_charge_date?: string;
+  }>;
+  const subscription = rows[0];
+  if (!subscription?.next_charge_date) return currentStatus;
+
+  const dueAt = new Date(`${subscription.next_charge_date}T23:59:59`);
+  const blockAt = dueAt.getTime() + 48 * 60 * 60 * 1000;
+  const alreadyBlocked =
+    subscription.status === "bloqueada" ||
+    subscription.status === "cancelada" ||
+    currentStatus === "bloqueada" ||
+    currentStatus === "cancelada";
+
+  if (Date.now() <= blockAt || alreadyBlocked) {
+    if (subscription.status === "bloqueada") return "bloqueada";
+    return currentStatus;
+  }
+
+  await supabaseAdminFetch(
+    env,
+    `/rest/v1/subscriptions?id=eq.${encodeURIComponent(subscription.id)}`,
+    {
+      method: "PATCH",
+      prefer: "return=minimal",
+      body: JSON.stringify({ status: "bloqueada", updated_at: new Date().toISOString() }),
+    },
+  );
+  await supabaseAdminFetch(env, `/rest/v1/stores?id=eq.${encodeURIComponent(storeId)}`, {
+    method: "PATCH",
+    prefer: "return=minimal",
+    body: JSON.stringify({ status: "bloqueada", updated_at: new Date().toISOString() }),
+  });
+
+  return "bloqueada" as StoreStatus;
 }
 
 async function requireOwner(request: Request, env: unknown) {
@@ -389,6 +499,8 @@ async function handleAdminCreateStore(request: Request, env: unknown) {
     email?: string;
     password?: string;
     segment?: string;
+    profileType?: "vendas" | "pessoal";
+    personalFocus?: string | null;
     city?: string;
     plan?: string;
     status?: StoreStatus;
@@ -400,6 +512,8 @@ async function handleAdminCreateStore(request: Request, env: unknown) {
   const email = body.email?.trim().toLowerCase();
   const password = body.password || "";
   const segment = sanitizeText(body.segment);
+  const profileType = body.profileType === "pessoal" ? "pessoal" : "vendas";
+  const personalFocus = profileType === "pessoal" ? sanitizeText(body.personalFocus) : null;
   const city = sanitizeText(body.city) || "Vinhedo/SP";
   const plan = sanitizeText(body.plan) || "Trial";
   const status = body.status || "trial";
@@ -468,6 +582,8 @@ async function handleAdminCreateStore(request: Request, env: unknown) {
       name,
       owner_name: owner,
       segment,
+      profile_type: profileType,
+      personal_focus: personalFocus,
       city,
       plan,
       status,
@@ -513,7 +629,16 @@ async function handleAdminCreateStore(request: Request, env: unknown) {
       store_id: store.id,
       plan,
       amount,
-      status: status === "trial" ? "trial" : status === "pendente" ? "em_atraso" : "em_dia",
+      status:
+        status === "trial"
+          ? "trial"
+          : status === "pendente"
+            ? "aguardando_pagamento"
+            : status === "bloqueada"
+              ? "bloqueada"
+              : status === "cancelada"
+                ? "cancelada"
+                : "ativa",
       next_charge_date: new Date(new Date().setMonth(new Date().getMonth() + 1))
         .toISOString()
         .slice(0, 10),

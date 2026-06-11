@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Eye, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
@@ -42,6 +42,14 @@ export const Route = createFileRoute("/_app/admin/lojas")({
   head: () => ({ meta: [{ title: "Lojas — Admin Caixa Local" }] }),
   component: AdminLojas,
 });
+
+const PERSONAL_FOCUS_OPTIONS = [
+  "Controle de gastos",
+  "Investir dinheiro",
+  "Guardar para uma meta",
+  "Reserva de emergencia",
+  "Outro foco",
+] as const;
 
 function AdminLojas() {
   const queryClient = useQueryClient();
@@ -140,6 +148,7 @@ function AdminLojas() {
                 <SelectItem value="ativa">Ativas</SelectItem>
                 <SelectItem value="trial">Trial</SelectItem>
                 <SelectItem value="pendente">Pendentes</SelectItem>
+                <SelectItem value="bloqueada">Bloqueadas</SelectItem>
               </SelectContent>
             </Select>
             <Button size="sm" className="gap-2" onClick={() => setCreating(true)}>
@@ -202,6 +211,7 @@ function AdminLojas() {
                           <SelectItem value="trial">Trial</SelectItem>
                           <SelectItem value="ativa">Ativa</SelectItem>
                           <SelectItem value="pendente">Pendente</SelectItem>
+                          <SelectItem value="bloqueada">Bloqueada</SelectItem>
                           <SelectItem value="cancelada">Cancelada</SelectItem>
                         </SelectContent>
                       </Select>
@@ -325,6 +335,8 @@ function CreateStoreDialog({
     email: string;
     password: string;
     segment: string;
+    profileType?: "vendas" | "pessoal";
+    personalFocus?: string | null;
     city: string;
     plan: Plan;
     status: StoreStatus;
@@ -332,6 +344,8 @@ function CreateStoreDialog({
   }) => void;
 }) {
   const defaultPlan = plans[0]?.name || "Trial";
+  const [profileType, setProfileType] = useState<"vendas" | "pessoal">("vendas");
+  const isPersonalProfile = profileType === "pessoal";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -346,10 +360,14 @@ function CreateStoreDialog({
             const form = new FormData(event.currentTarget);
             onSubmit({
               name: String(form.get("name") || ""),
-              owner: String(form.get("owner") || ""),
+              owner: isPersonalProfile
+                ? String(form.get("name") || "")
+                : String(form.get("owner") || ""),
               email: String(form.get("email") || ""),
               password: String(form.get("password") || ""),
-              segment: String(form.get("segment") || ""),
+              segment: isPersonalProfile ? "Pessoal" : String(form.get("segment") || ""),
+              profileType,
+              personalFocus: isPersonalProfile ? String(form.get("personalFocus") || "") : null,
               city: String(form.get("city") || "Vinhedo/SP"),
               plan: String(form.get("plan") || defaultPlan) as Plan,
               status: String(form.get("status") || "trial") as StoreStatus,
@@ -357,12 +375,28 @@ function CreateStoreDialog({
             });
           }}
         >
+          <Field label="Tipo de perfil">
+            <Select
+              value={profileType}
+              onValueChange={(value) => setProfileType(value as "vendas" | "pessoal")}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="vendas">Perfil de vendas</SelectItem>
+                <SelectItem value="pessoal">Perfil pessoal</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
           <Field label="Nome">
             <Input name="name" required />
           </Field>
-          <Field label="Responsável">
-            <Input name="owner" required />
-          </Field>
+          {!isPersonalProfile && (
+            <Field label="Responsavel">
+              <Input name="owner" required />
+            </Field>
+          )}
           <Field label="E-mail de acesso">
             <Input name="email" type="email" autoComplete="email" required />
           </Field>
@@ -375,9 +409,27 @@ function CreateStoreDialog({
               required
             />
           </Field>
-          <Field label="Segmento">
-            <Input name="segment" required />
-          </Field>
+          {!isPersonalProfile && (
+            <Field label="Segmento">
+              <Input name="segment" required />
+            </Field>
+          )}
+          {isPersonalProfile && (
+            <Field label="Foco atual">
+              <Select name="personalFocus" defaultValue="Controle de gastos">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PERSONAL_FOCUS_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           <Field label="Cidade">
             <Input name="city" defaultValue="Vinhedo/SP" required />
           </Field>
@@ -404,6 +456,7 @@ function CreateStoreDialog({
                 <SelectItem value="trial">Trial</SelectItem>
                 <SelectItem value="ativa">Ativa</SelectItem>
                 <SelectItem value="pendente">Pendente</SelectItem>
+                <SelectItem value="bloqueada">Bloqueada</SelectItem>
               </SelectContent>
             </Select>
           </Field>
@@ -435,6 +488,13 @@ function EditStoreDialog({
   onOpenChange: (open: boolean) => void;
   onSubmit: (id: string, payload: Partial<Store>) => void;
 }) {
+  const [profileType, setProfileType] = useState<"vendas" | "pessoal">("vendas");
+  const isPersonalProfile = profileType === "pessoal";
+
+  useEffect(() => {
+    if (store?.profileType) setProfileType(store.profileType);
+  }, [store?.profileType]);
+
   return (
     <Dialog open={Boolean(store)} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -449,8 +509,12 @@ function EditStoreDialog({
               const form = new FormData(event.currentTarget);
               onSubmit(store.id, {
                 name: String(form.get("name") || ""),
-                owner: String(form.get("owner") || ""),
-                segment: String(form.get("segment") || ""),
+                owner: isPersonalProfile
+                  ? String(form.get("name") || "")
+                  : String(form.get("owner") || ""),
+                segment: isPersonalProfile ? "Pessoal" : String(form.get("segment") || ""),
+                profileType,
+                personalFocus: isPersonalProfile ? String(form.get("personalFocus") || "") : null,
                 city: String(form.get("city") || ""),
                 cnpj: String(form.get("cnpj") || "") || null,
                 plan: String(form.get("plan") || store.plan),
@@ -458,15 +522,52 @@ function EditStoreDialog({
               });
             }}
           >
+            <Field label="Tipo de perfil">
+              <Select
+                value={profileType}
+                onValueChange={(value) => setProfileType(value as "vendas" | "pessoal")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vendas">Perfil de vendas</SelectItem>
+                  <SelectItem value="pessoal">Perfil pessoal</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
             <Field label="Nome">
               <Input name="name" defaultValue={store.name} required />
             </Field>
-            <Field label="Responsavel">
-              <Input name="owner" defaultValue={store.owner} required />
-            </Field>
-            <Field label="Segmento">
-              <Input name="segment" defaultValue={store.segment} required />
-            </Field>
+            {!isPersonalProfile && (
+              <Field label="Responsavel">
+                <Input name="owner" defaultValue={store.owner} required />
+              </Field>
+            )}
+            {!isPersonalProfile && (
+              <Field label="Segmento">
+                <Input name="segment" defaultValue={store.segment} required />
+              </Field>
+            )}
+            {isPersonalProfile && (
+              <Field label="Foco atual">
+                <Select
+                  name="personalFocus"
+                  defaultValue={store.personalFocus || "Controle de gastos"}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PERSONAL_FOCUS_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
             <Field label="Cidade">
               <Input name="city" defaultValue={store.city} required />
             </Field>
@@ -493,6 +594,7 @@ function EditStoreDialog({
                   <SelectItem value="trial">Trial</SelectItem>
                   <SelectItem value="ativa">Ativa</SelectItem>
                   <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="bloqueada">Bloqueada</SelectItem>
                   <SelectItem value="cancelada">Cancelada</SelectItem>
                 </SelectContent>
               </Select>

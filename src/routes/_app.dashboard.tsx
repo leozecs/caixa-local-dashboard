@@ -127,9 +127,18 @@ function DashboardPage() {
   const revenue = sumBy(currentEntries, "receita");
   const expenses = sumBy(currentEntries, "despesa");
   const profit = revenue - expenses;
-  const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  const isPersonalProfile = store.profileType === "pessoal";
+  const productCost = currentEntries
+    .filter((entry) => entry.type === "receita")
+    .reduce((sum, entry) => sum + (entry.productCostAmount || 0), 0);
+  const productRevenue = currentEntries
+    .filter((entry) => entry.type === "receita" && entry.productCostAmount)
+    .reduce((sum, entry) => sum + (entry.saleTotalAmount ?? entry.amount), 0);
+  const productMargin = productCost > 0 ? ((productRevenue - productCost) / productCost) * 100 : 0;
+  const operationalMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  const margin = productCost > 0 ? productMargin : operationalMargin;
   const capabilities = getPlanCapabilities(store.plan);
-  const showEmployeeCommissions = store.employeeCommissionsEnabled !== false;
+  const showEmployeeCommissions = !isPersonalProfile && store.employeeCommissionsEnabled !== false;
   const sales = currentEntries.filter((entry) => entry.type === "receita");
   const ticket = sales.length ? revenue / sales.length : 0;
   const prevRevenue = sumBy(previousEntries, "receita") || 1;
@@ -204,8 +213,10 @@ function DashboardPage() {
   const todayRevenue = sumBy(todayEntries, "receita");
   const todayExpenses = sumBy(todayEntries, "despesa");
   const todayProfit = todayRevenue - todayExpenses;
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  const expectedRevenue = goals.revenue > 0 ? goals.revenue * (today.getDate() / daysInMonth) : 0;
+  const daysInMonth = endOfMonth(monthStart).getDate();
+  const elapsedDay = isSameMonth(monthStart, today) ? today.getDate() : daysInMonth;
+  const dailyRevenueGoal = goals.revenue > 0 ? goals.revenue / daysInMonth : 0;
+  const expectedRevenue = goals.revenue > 0 ? dailyRevenueGoal * elapsedDay : 0;
 
   const expenseTicks = buildExpenseTicks(expensesByCat.map((item) => item.valor));
 
@@ -329,7 +340,12 @@ function DashboardPage() {
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div
+        className={cn(
+          "grid grid-cols-2 md:grid-cols-3 gap-3",
+          isPersonalProfile ? "xl:grid-cols-3" : "xl:grid-cols-6",
+        )}
+      >
         <MetricCard
           label="Faturamento"
           value={formatBRL(revenue)}
@@ -360,14 +376,18 @@ function DashboardPage() {
           icon={TrendingUp}
           accent="info"
         />
-        <MetricCard
-          label="Margem"
-          value={`${margin.toFixed(1)}%`}
-          icon={Percent}
-          accent={goals.margin > 0 && margin < goals.margin ? "warning" : "success"}
-          hint={goals.margin > 0 ? `meta ${goals.margin}%` : "sem meta"}
-        />
-        <MetricCard label="Ticket médio" value={formatBRL(ticket)} icon={ShoppingBag} />
+        {!isPersonalProfile && (
+          <MetricCard
+            label={productCost > 0 ? "Margem produto" : "Margem"}
+            value={`${margin.toFixed(1)}%`}
+            icon={Percent}
+            accent={goals.margin > 0 && margin < goals.margin ? "warning" : "success"}
+            hint={goals.margin > 0 ? `meta ${goals.margin}%` : "sem meta"}
+          />
+        )}
+        {!isPersonalProfile && (
+          <MetricCard label="Ticket médio" value={formatBRL(ticket)} icon={ShoppingBag} />
+        )}
         <MetricCard
           label="Meta mensal"
           value={`${goalProgress.toFixed(0)}%`}
@@ -393,7 +413,7 @@ function DashboardPage() {
           value={goals.revenue > 0 ? `${goalProgress.toFixed(0)}%` : "Sem meta"}
           detail={
             goals.revenue > 0
-              ? `Esperado ate hoje: ${formatBRL(expectedRevenue)}.`
+              ? `Esperado para hoje: ${formatBRL(dailyRevenueGoal)}. Esperado ate hoje: ${formatBRL(expectedRevenue)}.`
               : "Configure uma meta mensal para medir o ritmo."
           }
           tone={goals.revenue > 0 && revenue < expectedRevenue * 0.85 ? "warning" : "success"}

@@ -3,12 +3,26 @@ import { ptBR } from "date-fns/locale";
 import { requireSupabase } from "@/lib/supabase";
 import type { Profile } from "@/lib/auth";
 
-export type StoreStatus = "ativa" | "pendente" | "trial" | "cancelada";
+export type StoreStatus = "ativa" | "pendente" | "trial" | "cancelada" | "bloqueada";
 export type Risk = "saudavel" | "atencao" | "critico";
 export type EntryType = "receita" | "despesa";
 export type PaymentMethod = "Pix" | "Cartão" | "Dinheiro" | "Boleto" | "Transferência";
 export type Plan = string;
-export type SubscriptionStatus = "em_dia" | "em_atraso" | "trial" | "cancelada";
+export type SubscriptionStatus =
+  | "ativa"
+  | "aguardando_pagamento"
+  | "em_dia"
+  | "em_atraso"
+  | "trial"
+  | "cancelada"
+  | "bloqueada";
+export type SubscriptionProofStatus =
+  | "pago"
+  | "pendente"
+  | "atrasado"
+  | "cancelado"
+  | "em_analise"
+  | "recusado";
 export type StoreMemberRole = "owner" | "atendente";
 
 export const RECEITA_CATEGORIAS = [
@@ -35,6 +49,8 @@ export interface Store {
   name: string;
   owner: string;
   segment: string;
+  profileType: "vendas" | "pessoal";
+  personalFocus?: string | null;
   status: StoreStatus;
   plan: Plan;
   lastAccess: string | null;
@@ -62,6 +78,7 @@ export interface Entry {
   paymentMethod: PaymentMethod;
   amount: number;
   saleTotalAmount?: number | null;
+  productCostAmount?: number | null;
   salespersonName?: string | null;
   commissionPercent?: number | null;
   commissionAmount?: number;
@@ -115,6 +132,38 @@ export interface SubscriptionRow {
   nextCharge: string;
   lastPayment: string | null;
   payStatus: SubscriptionStatus;
+  paymentLink?: string | null;
+  pixCopyPaste?: string | null;
+  pixQrCodeUrl?: string | null;
+}
+
+export interface BillingRecord {
+  id: string;
+  storeId: string;
+  subscriptionId: string | null;
+  referenceMonth: string;
+  amount: number;
+  dueDate: string;
+  paidAt: string | null;
+  status: SubscriptionProofStatus;
+  notes: string | null;
+}
+
+export interface SubscriptionPaymentProof {
+  id: string;
+  storeId: string;
+  subscriptionId: string | null;
+  billingRecordId: string | null;
+  amount: number;
+  dueDate: string;
+  filePath: string;
+  fileName: string;
+  fileType: string | null;
+  fileSize: number;
+  status: SubscriptionProofStatus;
+  reviewNotes: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
 }
 
 export interface SubscriptionPlan {
@@ -213,6 +262,8 @@ type StoreRow = {
   name: string;
   owner_name: string;
   segment: string;
+  profile_type?: "vendas" | "pessoal" | null;
+  personal_focus?: string | null;
   status: StoreStatus;
   plan: Plan;
   last_access_at: string | null;
@@ -237,6 +288,7 @@ type EntryRow = {
   payment_method: PaymentMethod;
   amount: number;
   sale_total_amount?: number | null;
+  product_cost_amount?: number | null;
   salesperson_name?: string | null;
   commission_percent?: number | null;
   commission_amount?: number | null;
@@ -282,13 +334,40 @@ type SubscriptionDbRow = {
   amount: number;
   next_charge_date: string;
   status: SubscriptionStatus;
+  payment_link?: string | null;
+  pix_copy_paste?: string | null;
+  pix_qr_code_url?: string | null;
   stores?: { name: string } | { name: string }[] | null;
 };
 
 type BillingRecordDbRow = {
+  id: string;
   store_id: string;
+  subscription_id: string | null;
+  reference_month: string;
+  amount: number;
+  due_date: string;
   paid_at: string | null;
-  status: "pago" | "pendente" | "atrasado" | "cancelado";
+  status: SubscriptionProofStatus;
+  notes: string | null;
+};
+
+type SubscriptionPaymentProofDbRow = {
+  id: string;
+  store_id: string;
+  subscription_id: string | null;
+  billing_record_id: string | null;
+  amount: number;
+  due_date: string;
+  file_path: string;
+  file_name: string;
+  file_type: string | null;
+  file_size: number;
+  status: SubscriptionProofStatus;
+  review_notes: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  subscriptions?: SubscriptionDbRow | SubscriptionDbRow[] | null;
 };
 
 type SubscriptionPlanDbRow = {
@@ -490,17 +569,25 @@ async function ensureRecurringEntries(
   const rows = (seeds as EntryRow[]).flatMap((seed) => {
     const seedDate = parseISO(seed.entry_date);
     const seedMonth = startOfMonth(seedDate);
+    const installmentLimit =
+      seed.type === "receita" && (seed.installments ?? 1) > 1 ? (seed.installments ?? 1) : null;
     const occurrences: Array<Record<string, unknown>> = [];
     let cursor = seedMonth;
+    let occurrenceIndex = 0;
 
     while (cursor.getTime() < rangeEnd.getTime()) {
       const occurrenceDate = monthlyOccurrenceDate(seedDate, cursor);
       const isSeedMonth = cursor.getTime() === seedMonth.getTime();
+      const installmentNumber = occurrenceIndex + 1;
       const isInRange =
         occurrenceDate.getTime() >= rangeStart.getTime() &&
         occurrenceDate.getTime() < rangeEnd.getTime();
 
-      if (!isSeedMonth && isInRange) {
+      if (
+        !isSeedMonth &&
+        isInRange &&
+        (!installmentLimit || installmentNumber <= installmentLimit)
+      ) {
         occurrences.push({
           store_id: seed.store_id,
           entry_date: formatDateKey(occurrenceDate),
@@ -510,6 +597,7 @@ async function ensureRecurringEntries(
           payment_method: seed.payment_method,
           amount: seed.amount,
           sale_total_amount: seed.sale_total_amount ?? null,
+          product_cost_amount: seed.product_cost_amount ?? null,
           salesperson_name: seed.salesperson_name ?? null,
           commission_percent: seed.commission_percent ?? null,
           commission_amount: seed.commission_amount ?? 0,
@@ -524,6 +612,8 @@ async function ensureRecurringEntries(
       }
 
       cursor = addMonths(cursor, 1);
+      occurrenceIndex += 1;
+      if (installmentLimit && occurrenceIndex >= installmentLimit) break;
     }
 
     return occurrences;
@@ -551,6 +641,10 @@ function toEntry(row: EntryRow): Entry {
       row.sale_total_amount === null || row.sale_total_amount === undefined
         ? null
         : row.sale_total_amount / 100,
+    productCostAmount:
+      row.product_cost_amount === null || row.product_cost_amount === undefined
+        ? null
+        : row.product_cost_amount / 100,
     salespersonName: row.salesperson_name || null,
     commissionPercent:
       row.commission_percent === null || row.commission_percent === undefined
@@ -663,6 +757,39 @@ function toSubscriptionPlan(row: SubscriptionPlanDbRow): SubscriptionPlan {
     description: row.description,
     active: row.active,
     sortOrder: row.sort_order,
+  };
+}
+
+function toBillingRecord(row: BillingRecordDbRow): BillingRecord {
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    subscriptionId: row.subscription_id,
+    referenceMonth: row.reference_month,
+    amount: row.amount / 100,
+    dueDate: row.due_date,
+    paidAt: row.paid_at,
+    status: row.status,
+    notes: row.notes,
+  };
+}
+
+function toSubscriptionPaymentProof(row: SubscriptionPaymentProofDbRow): SubscriptionPaymentProof {
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    subscriptionId: row.subscription_id,
+    billingRecordId: row.billing_record_id,
+    amount: row.amount / 100,
+    dueDate: row.due_date,
+    filePath: row.file_path,
+    fileName: row.file_name,
+    fileType: row.file_type,
+    fileSize: row.file_size,
+    status: row.status,
+    reviewNotes: row.review_notes,
+    reviewedAt: row.reviewed_at,
+    createdAt: row.created_at,
   };
 }
 
@@ -911,6 +1038,8 @@ export async function createStore(input: {
   email: string;
   password: string;
   segment: string;
+  profileType?: "vendas" | "pessoal";
+  personalFocus?: string | null;
   city: string;
   plan: Plan;
   status: StoreStatus;
@@ -945,6 +1074,8 @@ export async function updateStore(id: string, input: Partial<Store>) {
   if (input.name !== undefined) payload.name = input.name;
   if (input.owner !== undefined) payload.owner_name = input.owner;
   if (input.segment !== undefined) payload.segment = input.segment;
+  if (input.profileType !== undefined) payload.profile_type = input.profileType;
+  if (input.personalFocus !== undefined) payload.personal_focus = input.personalFocus;
   if (input.city !== undefined) payload.city = input.city;
   if (input.status !== undefined) payload.status = input.status;
   if (input.plan !== undefined) payload.plan = input.plan;
@@ -1331,7 +1462,15 @@ export async function updateStorePlan(input: { storeId: string; plan: Plan; stat
   const client = requireSupabase();
   const planAmount = await getPlanAmount(input.plan);
   const subscriptionStatus: SubscriptionStatus =
-    input.status === "trial" ? "trial" : input.status === "pendente" ? "em_atraso" : "em_dia";
+    input.status === "trial"
+      ? "trial"
+      : input.status === "pendente"
+        ? "aguardando_pagamento"
+        : input.status === "bloqueada"
+          ? "bloqueada"
+          : input.status === "cancelada"
+            ? "cancelada"
+            : "ativa";
 
   const { data, error } = await client
     .from("stores")
@@ -1432,6 +1571,12 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
       entry.saleTotalAmount !== null &&
       entry.saleTotalAmount !== undefined
         ? Math.round(entry.saleTotalAmount * 100)
+        : null,
+    product_cost_amount:
+      entry.type === "receita" &&
+      entry.productCostAmount !== null &&
+      entry.productCostAmount !== undefined
+        ? Math.round(entry.productCostAmount * 100)
         : null,
     salesperson_name: entry.type === "receita" ? entry.salespersonName?.trim() || null : null,
     commission_percent: commissionPercent,
@@ -1644,7 +1789,9 @@ export async function listSubscriptions(): Promise<SubscriptionRow[]> {
   const client = requireSupabase();
   const { data, error } = await client
     .from("subscriptions")
-    .select("id, store_id, plan, amount, next_charge_date, status, stores(name)")
+    .select(
+      "id, store_id, plan, amount, next_charge_date, status, payment_link, pix_copy_paste, pix_qr_code_url, stores(name)",
+    )
     .order("next_charge_date", { ascending: true });
 
   if (error) throw error;
@@ -1654,7 +1801,9 @@ export async function listSubscriptions(): Promise<SubscriptionRow[]> {
   if (storeIds.length) {
     const { data: billingRows, error: billingError } = await client
       .from("billing_records")
-      .select("store_id, paid_at, status")
+      .select(
+        "id, store_id, subscription_id, reference_month, amount, due_date, paid_at, status, notes",
+      )
       .in("store_id", storeIds)
       .not("paid_at", "is", null)
       .order("paid_at", { ascending: false });
@@ -1676,7 +1825,175 @@ export async function listSubscriptions(): Promise<SubscriptionRow[]> {
     nextCharge: row.next_charge_date,
     lastPayment: lastPayments.get(row.store_id) || null,
     payStatus: row.status,
+    paymentLink: row.payment_link || null,
+    pixCopyPaste: row.pix_copy_paste || null,
+    pixQrCodeUrl: row.pix_qr_code_url || null,
   }));
+}
+
+export async function getStoreSubscription(storeId: string): Promise<SubscriptionRow | null> {
+  const subscriptions = await listSubscriptions();
+  return subscriptions.find((subscription) => subscription.storeId === storeId) || null;
+}
+
+export async function listBillingRecords(storeId: string): Promise<BillingRecord[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("billing_records")
+    .select(
+      "id, store_id, subscription_id, reference_month, amount, due_date, paid_at, status, notes",
+    )
+    .eq("store_id", storeId)
+    .order("due_date", { ascending: false })
+    .limit(24);
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+
+  return ((data || []) as BillingRecordDbRow[]).map(toBillingRecord);
+}
+
+export async function listSubscriptionPaymentProofs(
+  storeId?: string,
+): Promise<SubscriptionPaymentProof[]> {
+  const client = requireSupabase();
+  let query = client
+    .from("subscription_payment_proofs")
+    .select(
+      "id, store_id, subscription_id, billing_record_id, amount, due_date, file_path, file_name, file_type, file_size, status, review_notes, reviewed_at, created_at",
+    )
+    .order("created_at", { ascending: false });
+
+  if (storeId) query = query.eq("store_id", storeId);
+
+  const { data, error } = await query;
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+
+  return ((data || []) as SubscriptionPaymentProofDbRow[]).map(toSubscriptionPaymentProof);
+}
+
+export async function uploadSubscriptionPaymentProof(input: {
+  storeId: string;
+  subscriptionId: string | null;
+  amount: number;
+  dueDate: string;
+  file: File;
+}) {
+  const client = requireSupabase();
+  const safeName = input.file.name.replace(/[^\w.-]+/g, "-");
+  const filePath = `${input.storeId}/${crypto.randomUUID()}-${safeName}`;
+  const { error: uploadError } = await client.storage
+    .from("subscription-proofs")
+    .upload(filePath, input.file, {
+      contentType: input.file.type || "application/octet-stream",
+      upsert: false,
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await client
+    .from("subscription_payment_proofs")
+    .insert({
+      store_id: input.storeId,
+      subscription_id: input.subscriptionId,
+      amount: Math.round(input.amount * 100),
+      due_date: input.dueDate,
+      file_path: filePath,
+      file_name: input.file.name,
+      file_type: input.file.type || null,
+      file_size: input.file.size,
+      status: "em_analise",
+    })
+    .select(
+      "id, store_id, subscription_id, billing_record_id, amount, due_date, file_path, file_name, file_type, file_size, status, review_notes, reviewed_at, created_at",
+    )
+    .single();
+
+  if (error) throw error;
+  return toSubscriptionPaymentProof(data as SubscriptionPaymentProofDbRow);
+}
+
+export async function openSubscriptionPaymentProof(proof: SubscriptionPaymentProof) {
+  const client = requireSupabase();
+  const { data, error } = await client.storage
+    .from("subscription-proofs")
+    .createSignedUrl(proof.filePath, 60);
+
+  if (error) throw error;
+  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+}
+
+export async function approveSubscriptionPaymentProof(proof: SubscriptionPaymentProof) {
+  const client = requireSupabase();
+  const paidAt = format(new Date(), "yyyy-MM-dd");
+  const nextCharge = format(addMonths(parseISO(proof.dueDate), 1), "yyyy-MM-dd");
+  const referenceMonth = format(startOfMonth(parseISO(proof.dueDate)), "yyyy-MM-dd");
+
+  const { data: billing, error: billingError } = await client
+    .from("billing_records")
+    .insert({
+      store_id: proof.storeId,
+      subscription_id: proof.subscriptionId,
+      reference_month: referenceMonth,
+      amount: Math.round(proof.amount * 100),
+      due_date: proof.dueDate,
+      paid_at: paidAt,
+      status: "pago",
+      notes: `Comprovante validado: ${proof.fileName}`,
+    })
+    .select("id")
+    .single();
+
+  if (billingError) throw billingError;
+
+  const { error: proofError } = await client
+    .from("subscription_payment_proofs")
+    .update({
+      billing_record_id: billing.id,
+      status: "pago",
+      reviewed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", proof.id);
+  if (proofError) throw proofError;
+
+  if (proof.subscriptionId) {
+    const { error: subError } = await client
+      .from("subscriptions")
+      .update({
+        status: "ativa",
+        next_charge_date: nextCharge,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", proof.subscriptionId);
+    if (subError) throw subError;
+  }
+
+  const { error: storeError } = await client
+    .from("stores")
+    .update({ status: "ativa", updated_at: new Date().toISOString() })
+    .eq("id", proof.storeId);
+  if (storeError) throw storeError;
+}
+
+export async function rejectSubscriptionPaymentProof(input: { proofId: string; reason?: string }) {
+  const client = requireSupabase();
+  const { error } = await client
+    .from("subscription_payment_proofs")
+    .update({
+      status: "recusado",
+      review_notes: input.reason?.trim() || null,
+      reviewed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.proofId);
+
+  if (error) throw error;
 }
 
 export async function listStoreMonthlyResults(month = new Date()): Promise<StoreMonthlyResult[]> {
@@ -1980,6 +2297,8 @@ async function hydrateStore(row: StoreRow): Promise<Store> {
     name: row.name,
     owner: row.owner_name,
     segment: row.segment,
+    profileType: row.profile_type || "vendas",
+    personalFocus: row.personal_focus || null,
     status: row.status,
     plan: row.plan,
     lastAccess: row.last_access_at,

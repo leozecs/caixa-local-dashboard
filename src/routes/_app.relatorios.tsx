@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import JSZip from "jszip";
-import { format, isSameMonth, parseISO, startOfMonth, subMonths } from "date-fns";
+import { format, isSameMonth, parseISO, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +57,7 @@ import {
   getCurrentStore,
   getGoals,
   getPlanCapabilities,
+  listEntryMonths,
   listStoreAttachments,
   listEntries,
   saveEntry,
@@ -74,20 +75,23 @@ export const Route = createFileRoute("/_app/relatorios")({
   component: RelatoriosPage,
 });
 
+const REPORT_IMPROVEMENTS = [
+  "Separar vendas confirmadas de entradas previstas para evitar fechar caixa com valor futuro.",
+  "Marcar despesas fixas por categoria para enxergar o peso real do custo mensal.",
+  "Comparar formas de pagamento para identificar taxas e prazos que reduzem o caixa.",
+  "Destacar maiores despesas do mes antes do fechamento para facilitar corte rapido.",
+  "Exportar CSV e PDF sempre com o mesmo periodo selecionado na tela.",
+  "Conciliar extratos importados com lancamentos existentes antes de salvar duplicados.",
+  "Manter historico semestral por meses com movimento real, sem meses vazios artificiais.",
+  "Anexar comprovantes aos lancamentos importantes para auditoria simples.",
+  "Remover importacoes por arquivo quando um extrato foi enviado errado.",
+  "Usar margem por custo de produto quando o custo foi informado no lancamento.",
+] as const;
+
 function RelatoriosPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
-  const months = useMemo(
-    () =>
-      Array.from({ length: 6 })
-        .map((_, index) => {
-          const date = startOfMonth(subMonths(new Date(), 5 - index));
-          return { value: date.toISOString(), label: format(date, "MMMM/yyyy", { locale: ptBR }) };
-        })
-        .reverse(),
-    [],
-  );
-  const [selected, setSelected] = useState(months[0].value);
+  const [selected, setSelected] = useState(startOfMonth(new Date()).toISOString());
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
   const [selectedSemester, setSelectedSemester] = useState("1");
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -109,6 +113,26 @@ function RelatoriosPage() {
     queryFn: () => listEntries(store!.id, "2000-01-01", "2100-01-01"),
     enabled: Boolean(store?.id),
   });
+  const { data: entryMonths = [] } = useQuery({
+    queryKey: ["entry-months", store?.id],
+    queryFn: () => listEntryMonths(store!.id),
+    enabled: Boolean(store?.id),
+  });
+  const months = useMemo(() => {
+    const values = entryMonths.length
+      ? entryMonths
+      : [startOfMonth(new Date()).toISOString().slice(0, 10)];
+    return values.map((value) => {
+      const date = startOfMonth(parseISO(value));
+      return { value: date.toISOString(), label: format(date, "MMMM/yyyy", { locale: ptBR }) };
+    });
+  }, [entryMonths]);
+
+  useEffect(() => {
+    if (months.length && !months.some((month) => month.value === selected)) {
+      setSelected(months[0].value);
+    }
+  }, [months, selected]);
 
   const { data: goals = { revenue: 0, margin: 0, maxExpenses: 0 } } = useQuery({
     queryKey: ["goals", store?.id, selected],
@@ -172,6 +196,7 @@ function RelatoriosPage() {
   const storeName = store.name;
   const capabilities = getPlanCapabilities(store.plan);
   const monthEntries = entries.filter((entry) => isSameMonth(parseISO(entry.date), selectedDate));
+  const isPersonalProfile = store.profileType === "pessoal";
   const rev = monthEntries
     .filter((entry) => entry.type === "receita")
     .reduce((sum, entry) => sum + entry.amount, 0);
@@ -179,7 +204,16 @@ function RelatoriosPage() {
     .filter((entry) => entry.type === "despesa")
     .reduce((sum, entry) => sum + entry.amount, 0);
   const lucro = rev - exp;
-  const margin = rev > 0 ? (lucro / rev) * 100 : 0;
+  const productCost = monthEntries
+    .filter((entry) => entry.type === "receita")
+    .reduce((sum, entry) => sum + (entry.productCostAmount || 0), 0);
+  const productRevenue = monthEntries
+    .filter((entry) => entry.type === "receita" && entry.productCostAmount)
+    .reduce((sum, entry) => sum + (entry.saleTotalAmount ?? entry.amount), 0);
+  const productMargin = productCost > 0 ? ((productRevenue - productCost) / productCost) * 100 : 0;
+  const operationalMargin = rev > 0 ? (lucro / rev) * 100 : 0;
+  const margin = productCost > 0 ? productMargin : operationalMargin;
+  const marginLabel = productCost > 0 ? "Margem produto" : "Margem";
   const byCat = monthEntries.reduce<Array<{ categoria: string; receita: number; despesa: number }>>(
     (items, entry) => {
       const item = items.find((row) => row.categoria === entry.category) || {
@@ -257,7 +291,11 @@ function RelatoriosPage() {
         <div class="card"><div class="label">Faturamento</div><div class="value">${formatBRL(rev)}</div></div>
         <div class="card"><div class="label">Despesas</div><div class="value">${formatBRL(exp)}</div></div>
         <div class="card"><div class="label">Lucro</div><div class="value">${formatBRL(lucro)}</div></div>
-        <div class="card"><div class="label">Margem</div><div class="value">${margin.toFixed(1)}%</div></div>
+        ${
+          !isPersonalProfile
+            ? `<div class="card"><div class="label">${escapeHtml(marginLabel)}</div><div class="value">${margin.toFixed(1)}%</div></div>`
+            : ""
+        }
       </div>
       <table><thead><tr><th>Data</th><th>Tipo</th><th>Categoria</th><th>Descricao</th><th>Pagamento</th><th>Valor</th></tr></thead>
       <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(String(cell))}</td>`).join("")}</tr>`).join("")}</tbody></table>
@@ -436,7 +474,7 @@ function RelatoriosPage() {
         <MetricCard label="Faturamento" value={formatBRL(rev)} accent="success" />
         <MetricCard label="Despesas" value={formatBRL(exp)} accent="expense" />
         <MetricCard label="Lucro" value={formatBRL(lucro)} accent="info" />
-        <MetricCard label="Margem" value={`${margin.toFixed(1)}%`} />
+        {!isPersonalProfile && <MetricCard label={marginLabel} value={`${margin.toFixed(1)}%`} />}
       </div>
 
       <Card className="shadow-none">
@@ -488,6 +526,24 @@ function RelatoriosPage() {
               />
             </LineChart>
           </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">Melhorias uteis para relatorios</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {REPORT_IMPROVEMENTS.map((item, index) => (
+              <div key={item} className="rounded-md border border-border px-3 py-2">
+                <div className="text-xs font-medium text-muted-foreground">
+                  {String(index + 1).padStart(2, "0")}
+                </div>
+                <div className="mt-1 text-sm">{item}</div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 

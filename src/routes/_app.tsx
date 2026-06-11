@@ -12,7 +12,6 @@ import {
   Wallet,
   Sparkles,
   Store as StoreIcon,
-  ChevronDown,
   Shield,
   Building2,
   CreditCard,
@@ -48,6 +47,7 @@ const STORE_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/lancamentos", label: "Lançamentos", icon: ArrowLeftRight },
   { to: "/metas", label: "Metas", icon: Target },
+  { to: "/assinaturas", label: "Assinatura", icon: CreditCard },
   { to: "/alertas", label: "Alertas", icon: Bell },
   { to: "/consultor-ia", label: "Consultor IA", icon: Sparkles },
   { to: "/relatorios", label: "Relatórios", icon: FileBarChart2 },
@@ -118,13 +118,29 @@ function AppShell() {
     if (session.role === "lojista" && inAdmin) navigate({ to: "/dashboard" });
     if (
       session.role === "lojista" &&
+      currentStore?.status === "bloqueada" &&
+      pathname !== "/assinaturas"
+    ) {
+      navigate({ to: "/assinaturas" });
+    }
+    if (
+      session.role === "lojista" &&
       currentStore?.memberRole === "atendente" &&
       pathname !== "/dashboard" &&
-      pathname !== "/lancamentos"
+      pathname !== "/lancamentos" &&
+      pathname !== "/assinaturas"
     ) {
       navigate({ to: "/dashboard" });
     }
-  }, [loading, session, inAdmin, currentStore?.memberRole, pathname, navigate]);
+  }, [
+    loading,
+    session,
+    inAdmin,
+    currentStore?.memberRole,
+    currentStore?.status,
+    pathname,
+    navigate,
+  ]);
 
   useEffect(() => {
     if (pathname !== "/alertas" || !storeAlerts.length) return;
@@ -139,9 +155,9 @@ function AppShell() {
   const sidebarTheme = sidebarThemeStyle(session.profile.profileColor);
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground" style={sidebarTheme}>
+    <div className="min-h-screen bg-background text-foreground" style={sidebarTheme}>
       {/* Sidebar desktop */}
-      <aside className="hidden lg:flex w-60 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border lg:flex">
         <BrandBlock title={shellName} logoUrl={currentStore?.logoUrl} />
         <SidebarNav items={navItems} pathname={pathname} />
         <div className="mt-auto p-3 border-t border-sidebar-border">
@@ -175,7 +191,7 @@ function AppShell() {
       )}
 
       {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex min-h-screen min-w-0 flex-col lg:ml-60">
         <header className="h-14 border-b border-border bg-card flex items-center px-4 lg:px-6 gap-3 sticky top-0 z-30">
           <button
             className="lg:hidden p-2 rounded-md hover:bg-muted"
@@ -190,18 +206,8 @@ function AppShell() {
           <div className="ml-auto flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-2">
-                  <div
-                    className="h-7 w-7 rounded-full grid place-items-center text-xs font-semibold"
-                    style={{
-                      backgroundColor: "var(--sidebar)",
-                      color: "var(--sidebar-foreground)",
-                    }}
-                  >
-                    {profileInitial(session.profile.profileInitial, session.name)}
-                  </div>
-                  <span className="hidden sm:inline text-sm">{session.name.split(" ")[0]}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                <Button variant="ghost" size="icon" aria-label="Abrir menu da conta">
+                  <Settings className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
@@ -349,6 +355,7 @@ function StoreSwitcher({ inAdmin, store }: { inAdmin: boolean; store: Store | nu
       ativa: { label: "Loja ativa", variant: "success" as const },
       pendente: { label: "Pendente", variant: "warning" as const },
       trial: { label: "Trial", variant: "info" as const },
+      bloqueada: { label: "Bloqueada", variant: "danger" as const },
       cancelada: { label: "Cancelada", variant: "danger" as const },
     }[status];
   }, [status, inAdmin]);
@@ -391,10 +398,6 @@ function StatusDot({ variant }: { variant: "success" | "warning" | "info" | "dan
     danger: "bg-destructive",
   }[variant];
   return <span className={cn("inline-block h-1.5 w-1.5 rounded-full", cls)} />;
-}
-
-function profileInitial(savedInitial: string | null | undefined, name: string) {
-  return (savedInitial || name.trim().slice(0, 1) || "C").slice(0, 1).toUpperCase();
 }
 
 function sidebarThemeStyle(color: string | null | undefined): CSSProperties {

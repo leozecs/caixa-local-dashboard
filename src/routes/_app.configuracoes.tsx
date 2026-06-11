@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ImageUp, Plus, Save, Trash2, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -47,17 +47,27 @@ export const Route = createFileRoute("/_app/configuracoes")({
   component: ConfigPage,
 });
 
+const PERSONAL_FOCUS_OPTIONS = [
+  "Controle de gastos",
+  "Investir dinheiro",
+  "Guardar para uma meta",
+  "Reserva de emergencia",
+  "Outro foco",
+] as const;
+
 function ConfigPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
   const [newCategoryType, setNewCategoryType] = useState<EntryType>("receita");
+  const [profileType, setProfileType] = useState<"vendas" | "pessoal">("vendas");
   const { data: store } = useQuery({
     queryKey: ["current-store", session?.profile.id],
     queryFn: () => getCurrentStore(session!.profile),
     enabled: Boolean(session),
   });
   const isOwner = session?.role === "owner";
-  const canManageTeam = store?.memberRole === "owner" || isOwner;
+  const isPersonalProfile = profileType === "pessoal";
+  const canManageTeam = (store?.memberRole === "owner" || isOwner) && !isPersonalProfile;
   const { data: plans = [] } = useQuery({
     queryKey: ["subscription-plans"],
     queryFn: () => listSubscriptionPlans(),
@@ -78,6 +88,10 @@ function ConfigPage() {
     queryFn: () => listStoreCategories(store!.id),
     enabled: Boolean(store?.id),
   });
+
+  useEffect(() => {
+    if (store?.profileType) setProfileType(store.profileType);
+  }, [store?.profileType]);
   const createMemberMutation = useMutation({
     mutationFn: (payload: FormData) =>
       createStoreMember({
@@ -243,14 +257,24 @@ function ConfigPage() {
   });
 
   const mutation = useMutation({
-    mutationFn: (payload: FormData) =>
-      updateStore(store!.id, {
+    mutationFn: (payload: FormData) => {
+      const nextProfileType = String(payload.get("profileType") || "vendas") as
+        | "vendas"
+        | "pessoal";
+      return updateStore(store!.id, {
         name: String(payload.get("name") || ""),
-        owner: String(payload.get("owner") || ""),
-        segment: String(payload.get("segment") || ""),
+        owner:
+          nextProfileType === "pessoal"
+            ? String(payload.get("name") || "")
+            : String(payload.get("owner") || ""),
+        segment: nextProfileType === "pessoal" ? "Pessoal" : String(payload.get("segment") || ""),
         city: String(payload.get("city") || ""),
         cnpj: String(payload.get("cnpj") || "") || null,
-      }),
+        profileType: nextProfileType,
+        personalFocus:
+          nextProfileType === "pessoal" ? String(payload.get("personalFocus") || "") : null,
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["current-store"] });
       queryClient.invalidateQueries({ queryKey: ["admin-stores"] });
@@ -269,12 +293,14 @@ function ConfigPage() {
     <div className="space-y-5 max-w-3xl">
       <PageHeader
         title="Configuracoes"
-        description="Dados da loja, equipe e preferencias de notificacao."
+        description="Dados do perfil, categorias e preferencias de notificacao."
       />
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Dados da loja</CardTitle>
+          <CardTitle className="text-sm font-semibold">
+            {isPersonalProfile ? "Dados pessoais" : "Dados da loja"}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <form
@@ -284,20 +310,58 @@ function ConfigPage() {
               mutation.mutate(new FormData(event.currentTarget));
             }}
           >
-            <Field label="Nome do estabelecimento">
+            <Field label="Tipo de perfil">
+              <Select
+                name="profileType"
+                value={profileType}
+                onValueChange={(value) => setProfileType(value as "vendas" | "pessoal")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vendas">Perfil de vendas</SelectItem>
+                  <SelectItem value="pessoal">Perfil pessoal</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label={isPersonalProfile ? "Nome" : "Nome do estabelecimento"}>
               <Input name="name" defaultValue={store.name} />
             </Field>
-            <Field label="Responsavel">
-              <Input name="owner" defaultValue={store.owner} />
-            </Field>
-            <Field label="Segmento">
-              <Input name="segment" defaultValue={store.segment} />
-            </Field>
+            {!isPersonalProfile && (
+              <>
+                <Field label="Responsavel">
+                  <Input name="owner" defaultValue={store.owner} />
+                </Field>
+                <Field label="Segmento">
+                  <Input name="segment" defaultValue={store.segment} />
+                </Field>
+              </>
+            )}
+            {isPersonalProfile && (
+              <Field label="Foco atual">
+                <Select
+                  name="personalFocus"
+                  defaultValue={store.personalFocus || "Controle de gastos"}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PERSONAL_FOCUS_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
             <Field label="Cidade">
               <Input name="city" defaultValue={store.city} />
             </Field>
             <div className="space-y-1.5 md:col-span-2">
-              <Label>CNPJ</Label>
+              <Label>CPF / CNPJ</Label>
               <Input name="cnpj" defaultValue={store.cnpj || ""} />
             </div>
             <div className="md:col-span-2 flex justify-end">
@@ -374,28 +438,33 @@ function ConfigPage() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Logo da loja</CardTitle>
+          <CardTitle className="text-sm font-semibold">
+            {isPersonalProfile ? "Foto do perfil" : "Logo da loja"}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <form
-            className="flex flex-col gap-4 md:flex-row md:items-end"
+            className="grid grid-cols-1 gap-4 md:grid-cols-[112px_1fr_auto] md:items-end"
             onSubmit={(event) => {
               event.preventDefault();
               logoMutation.mutate(new FormData(event.currentTarget));
             }}
           >
-            <div className="h-16 w-16 shrink-0 rounded-md border border-border bg-muted grid place-items-center overflow-hidden">
+            <div className="h-28 w-28 shrink-0 rounded-lg border border-dashed border-border bg-muted/50 grid place-items-center overflow-hidden">
               {store.logoUrl ? (
                 <img
                   src={store.logoUrl}
                   alt={`Logo ${store.name}`}
-                  className="h-full w-full object-contain"
+                  className="h-full w-full object-contain p-2"
                 />
               ) : (
-                <ImageUp className="h-5 w-5 text-muted-foreground" />
+                <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                  <ImageUp className="h-5 w-5" />
+                  <span className="text-xs">Preview</span>
+                </div>
               )}
             </div>
-            <Field label="Imagem da logo">
+            <Field label={isPersonalProfile ? "Imagem do perfil" : "Imagem da logo"}>
               <Input name="logo" type="file" accept="image/*" required />
             </Field>
             <Button type="submit" size="sm" className="gap-2" disabled={logoMutation.isPending}>
@@ -422,7 +491,7 @@ function ConfigPage() {
                 }}
               >
                 <Field label="Nome do atendente">
-                  <Input name="name" placeholder="Ex: Israel" required />
+                  <Input name="name" placeholder="Ex: Pedro" required />
                 </Field>
                 <Field label="Comissao (%)">
                   <Input
@@ -656,7 +725,7 @@ function ConfigPage() {
 
       {isOwner && <PlansCard plans={plans} />}
 
-      {!canManageTeam && (
+      {!canManageTeam && !isPersonalProfile && (
         <Card className="shadow-none">
           <CardHeader>
             <CardTitle className="text-sm font-semibold">Equipe da loja</CardTitle>
@@ -706,21 +775,25 @@ function ConfigPage() {
           <CardTitle className="text-sm font-semibold">Notificacoes</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <ToggleRow
-            label="Exibir comissoes por funcionario"
-            hint="Controla apenas o grafico de receita por funcionario no dashboard. O formulario de lancamento continua permitindo comissao."
-            checked={store.employeeCommissionsEnabled !== false}
-            onCheckedChange={(checked) =>
-              notificationMutation.mutate({ employeeCommissionsEnabled: checked })
-            }
-            disabled={notificationMutation.isPending}
-          />
-          <Separator />
+          {!isPersonalProfile && (
+            <>
+              <ToggleRow
+                label="Exibir comissoes por funcionario"
+                hint="Controla apenas o grafico de receita por funcionario no dashboard. O formulario de lancamento continua permitindo comissao."
+                checked={store.employeeCommissionsEnabled !== false}
+                onCheckedChange={(checked) =>
+                  notificationMutation.mutate({ employeeCommissionsEnabled: checked })
+                }
+                disabled={notificationMutation.isPending}
+              />
+              <Separator />
+            </>
+          )}
           <ToggleRow
             label="Alerta diario de fechamento"
             hint={
               capabilities.dailyWhatsappSummary
-                ? "Resumo do caixa por WhatsApp."
+                ? "Envia o resumo do caixa pelo WhatsApp e mantem o resumo disponivel na aba Alertas."
                 : "Disponivel a partir do plano Essencial."
             }
             checked={Boolean(store.dailyClosingWhatsappEnabled)}
