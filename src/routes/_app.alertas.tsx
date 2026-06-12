@@ -32,7 +32,7 @@ function AlertasPage() {
 
   if (!planHasAlerts(store.plan)) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-6">
         <PageHeader
           title="Alertas"
           description="Alertas operacionais ficam disponiveis nos planos Essencial e Gestao Local."
@@ -56,7 +56,7 @@ function AlertasPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title="Alertas"
         description="Margem, faturamento e limite de despesas monitorados a partir das metas configuradas."
@@ -103,7 +103,7 @@ function AlertasPage() {
                             ? "bg-destructive/10 text-destructive border-destructive/30"
                             : info
                               ? "bg-info/10 text-info border-info/30"
-                            : "bg-warning/10 text-warning border-warning/30",
+                              : "bg-warning/10 text-warning border-warning/30",
                         )}
                       >
                         {critical ? "Critico" : info ? "Info" : "Atencao"}

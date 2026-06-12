@@ -240,7 +240,7 @@ function DashboardPage() {
     const weekExpenses = weekRows.reduce((sum, row) => sum + row.expenses, 0);
 
     return (
-      <div className="space-y-5">
+      <div className="space-y-6">
         <PageHeader
           title={`Olá, ${session?.name.split(" ")[0] || "atendente"}.`}
           description={`Resumo operacional da semana — ${store.name}`}
@@ -253,7 +253,7 @@ function DashboardPage() {
           }
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <MetricCard label="Entrou na semana" value={formatBRL(weekRevenue)} accent="success" />
           <MetricCard label="Saiu na semana" value={formatBRL(weekExpenses)} accent="expense" />
           <MetricCard
@@ -308,7 +308,7 @@ function DashboardPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title={`Olá, ${store.owner.split(" ")[0]}.`}
         description={`Visão geral de ${format(monthStart, "MMMM/yyyy", { locale: ptBR })} — ${store.name}`}
@@ -345,7 +345,7 @@ function DashboardPage() {
 
       <div
         className={cn(
-          "grid grid-cols-2 md:grid-cols-3 gap-3",
+          "grid grid-cols-2 gap-4 md:grid-cols-3",
           isPersonalProfile ? "xl:grid-cols-3" : "xl:grid-cols-6",
         )}
       >
@@ -400,7 +400,7 @@ function DashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <RoutineCard
           title="Despesa que mais pesou"
           value={expensesByCat[0] ? expensesByCat[0].categoria : "Sem despesa"}
@@ -507,7 +507,7 @@ function DashboardPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2 shadow-none">
           <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3 space-y-0">
             <CardTitle className="text-sm font-semibold">Faturamento semanal</CardTitle>
@@ -599,7 +599,7 @@ function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="shadow-none">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">Resumo de hoje</CardTitle>

@@ -149,7 +149,7 @@ function AnotacoesPage() {
   const loadingError = topicsError || blocksError;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title="AnotaÃ§Ãµes"
         description="Temas e blocos de nota para registrar decisÃµes, pendÃªncias e observaÃ§Ãµes da rotina."

@@ -232,7 +232,7 @@ function LancamentosPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title="Lancamentos"
         description="Receitas e despesas na mesma tela para fechar o caixa sem trocar de aba."
@@ -243,7 +243,7 @@ function LancamentosPage() {
         }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard label="Total de receitas" value={formatBRL(totalReceitas)} accent="success" />
         <MetricCard label="Total de despesas" value={formatBRL(totalDespesas)} accent="expense" />
         <MetricCard
@@ -254,11 +254,11 @@ function LancamentosPage() {
         />
       </div>
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="text-sm text-muted-foreground">
           Mostrando os 10 lancamentos mais recentes do mes selecionado.
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={selectedMonth} onValueChange={setSelectedMonth}>
             <SelectTrigger className="h-8 w-[190px]">
               <SelectValue />
@@ -297,7 +297,7 @@ function LancamentosPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <EntriesTable
           title="Receitas"
           type="receita"
@@ -435,7 +435,7 @@ function EntriesTable({
   onViewAll: () => void;
 }) {
   return (
-    <Card className="shadow-none">
+    <Card className="overflow-hidden shadow-none">
       <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
         <div>
           <CardTitle className="text-sm font-semibold">{title}</CardTitle>

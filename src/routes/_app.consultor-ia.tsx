@@ -107,7 +107,7 @@ function ConsultorIaPage() {
   const capabilities = getPlanCapabilities(store.plan);
   if (!capabilities.aiConsultant) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-6">
         <PageHeader title="Meu Consultor IA" description="Disponivel no plano Gestao Local." />
         <Card className="shadow-none">
           <CardContent className="p-6">
@@ -129,7 +129,7 @@ function ConsultorIaPage() {
   const weeklyLocked = Boolean(nextAllowedAt && Date.now() < nextAllowedAt.getTime());
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title="Meu Consultor IA"
         description="Analise dos numeros da loja com proximos passos praticos."

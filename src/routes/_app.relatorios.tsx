@@ -359,7 +359,7 @@ function RelatoriosPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title="Relatorios"
         description="Fechamento mensal, evolucao do negocio e exportacao padronizada."
@@ -461,14 +461,14 @@ function RelatoriosPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Faturamento" value={formatBRL(rev)} accent="success" />
         <MetricCard label="Despesas" value={formatBRL(exp)} accent="expense" />
         <MetricCard label="Lucro" value={formatBRL(lucro)} accent="info" />
         {!isPersonalProfile && <MetricCard label={marginLabel} value={`${margin.toFixed(1)}%`} />}
       </div>
 
-      <Card className="shadow-none">
+      <Card className="overflow-hidden shadow-none">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">
             Evolucao do semestre {selectedSemester}/{selectedYear}
@@ -592,7 +592,7 @@ function RelatoriosPage() {
         </Card>
       ) : null}
 
-      <Card className="shadow-none">
+      <Card className="overflow-hidden shadow-none">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold">
             Por categoria - {format(selectedDate, "MMMM/yyyy", { locale: ptBR })}

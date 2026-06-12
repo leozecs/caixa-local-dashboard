@@ -131,7 +131,7 @@ function MetasPage() {
   const isPersonalProfile = store.profileType === "pessoal";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title="Metas do mes"
         description="Comece vazio: defina as metas que fazem sentido para a rotina da sua loja."
@@ -153,7 +153,7 @@ function MetasPage() {
 
       <div
         className={cn(
-          "grid grid-cols-1 gap-3",
+          "grid grid-cols-1 gap-4",
           isPersonalProfile ? "lg:grid-cols-2" : "lg:grid-cols-3",
         )}
       >

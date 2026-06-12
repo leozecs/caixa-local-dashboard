@@ -159,10 +159,10 @@ function AppShell() {
   return (
     <div className="min-h-screen bg-background text-foreground" style={sidebarTheme}>
       {/* Sidebar desktop */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[18px_0_50px_oklch(0.2_0.03_256_/_0.08)] lg:flex">
         <BrandBlock title={shellName} logoUrl={currentStore?.logoUrl} />
         <SidebarNav items={navItems} pathname={pathname} />
-        <div className="mt-auto p-3 border-t border-sidebar-border">
+        <div className="mt-auto border-t border-sidebar-border p-3">
           <div className="text-xs text-sidebar-foreground/60">Logado como</div>
           <div className="text-sm font-medium truncate">{session.name}</div>
           <div className="text-xs text-sidebar-foreground/60 truncate">{session.email}</div>
@@ -193,10 +193,10 @@ function AppShell() {
       )}
 
       {/* Main */}
-      <div className="flex min-h-screen min-w-0 flex-col lg:ml-60">
-        <header className="h-14 border-b border-border bg-card flex items-center px-4 lg:px-6 gap-3 sticky top-0 z-30">
+      <div className="flex min-h-screen min-w-0 flex-col lg:ml-64">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border/70 bg-card/85 px-4 shadow-[0_1px_0_oklch(0.2_0.03_256_/_0.03)] backdrop-blur-xl lg:px-7">
           <button
-            className="lg:hidden p-2 rounded-md hover:bg-muted"
+            className="rounded-md p-2 transition-colors hover:bg-muted lg:hidden"
             onClick={() => setMobileOpen(true)}
             aria-label="Abrir menu"
           >
@@ -242,12 +242,14 @@ function AppShell() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 lg:p-6 pb-24 lg:pb-6 min-w-0">
-          <Outlet />
+        <main className="min-w-0 flex-1 px-4 pb-24 pt-5 sm:px-5 lg:px-7 lg:pb-8 lg:pt-7">
+          <div className="mx-auto w-full max-w-[1500px]">
+            <Outlet />
+          </div>
         </main>
 
         {/* Bottom nav mobile */}
-        <nav className="lg:hidden fixed bottom-0 inset-x-0 bg-card border-t border-border flex items-center justify-around h-16 z-30">
+        <nav className="fixed inset-x-0 bottom-0 z-30 flex h-16 items-center justify-around border-t border-border bg-card/95 shadow-[0_-14px_40px_oklch(0.2_0.03_256_/_0.08)] backdrop-blur-xl lg:hidden">
           {navItems.slice(0, 6).map((item) => {
             const active =
               pathname === item.to || (item.to !== "/admin" && pathname.startsWith(item.to + "/"));
@@ -257,8 +259,8 @@ function AppShell() {
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  "relative flex flex-col items-center justify-center text-[10px] gap-0.5 px-2 py-1 rounded-md min-w-[56px]",
-                  active ? "text-primary" : "text-muted-foreground",
+                  "relative flex min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-md px-2 py-1 text-[10px] transition-colors",
+                  active ? "bg-accent text-primary" : "text-muted-foreground",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -289,11 +291,11 @@ function BrandBlock({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 px-4",
-        compact ? "py-2" : "py-4 border-b border-sidebar-border",
+        "flex items-center gap-3 px-4",
+        compact ? "py-2" : "border-b border-sidebar-border py-4",
       )}
     >
-      <div className="h-8 w-8 rounded-md bg-sidebar-primary text-sidebar-primary-foreground grid place-items-center overflow-hidden">
+      <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-[inset_0_1px_0_rgb(255_255_255_/_0.12)] ring-1 ring-sidebar-foreground/10">
         {logoUrl ? (
           <img src={logoUrl} alt={`Logo ${title}`} className="h-full w-full object-contain" />
         ) : (
@@ -301,7 +303,7 @@ function BrandBlock({
         )}
       </div>
       <div>
-        <div className="text-sm font-semibold leading-tight truncate max-w-[168px]">{title}</div>
+        <div className="max-w-[178px] truncate text-sm font-semibold leading-tight">{title}</div>
         <div className="text-[10px] text-sidebar-foreground/60 leading-tight">Caixa Local</div>
       </div>
     </div>
@@ -311,7 +313,7 @@ function BrandBlock({
 function HeaderBrand() {
   return (
     <div className="flex items-center gap-2.5 min-w-0">
-      <div className="h-8 w-8 rounded-md bg-muted grid place-items-center text-foreground">
+      <div className="grid h-8 w-8 place-items-center rounded-lg border border-border/80 bg-muted text-foreground shadow-sm">
         <Wallet className="h-4 w-4" />
       </div>
       <div className="min-w-0">
@@ -332,7 +334,7 @@ function SidebarNav({
   onNavigate?: () => void;
 }) {
   return (
-    <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+    <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-3">
       {items.map((item) => {
         const active =
           pathname === item.to || (item.to !== "/" && pathname.startsWith(item.to + "/"));
@@ -343,12 +345,15 @@ function SidebarNav({
             to={item.to}
             onClick={onNavigate}
             className={cn(
-              "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+              "relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-[background-color,color,transform] duration-200 ease-out active:translate-y-px",
               active
-                ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                : "text-sidebar-foreground/75 hover:text-sidebar-foreground hover:bg-sidebar-accent/60",
+                ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)]"
+                : "text-sidebar-foreground/75 hover:bg-sidebar-accent/65 hover:text-sidebar-foreground",
             )}
           >
+            {active && (
+              <span className="absolute left-1 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-sidebar-foreground/70" />
+            )}
             <Icon className="h-4 w-4" />
             <span className="truncate">{item.label}</span>
             {item.badge ? (
