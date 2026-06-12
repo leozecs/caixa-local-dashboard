@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -447,9 +448,7 @@ function EntriesTable({
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
-          <div className="py-16 text-center text-sm text-muted-foreground">
-            Carregando lancamentos...
-          </div>
+          <EntryRowsSkeleton />
         ) : entries.length === 0 ? (
           <EmptyTable type={type} onAdd={onAdd} />
         ) : (
@@ -769,6 +768,35 @@ function EntryBadge({ type }: { type: EntryType }) {
     >
       {type === "receita" ? "Receita" : "Despesa"}
     </Badge>
+  );
+}
+
+function EntryRowsSkeleton() {
+  return (
+    <div className="divide-y divide-border">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div
+          key={index}
+          className="grid gap-3 px-4 py-3 md:grid-cols-[96px_1fr_auto]"
+          aria-hidden="true"
+        >
+          <Skeleton className="h-4 w-20" />
+          <div className="min-w-0 space-y-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-5 w-16" />
+            </div>
+            <Skeleton className="h-4 w-full max-w-[320px]" />
+            <Skeleton className="h-3 w-40" />
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-7 w-7" />
+            <Skeleton className="h-7 w-7" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1294,7 +1322,10 @@ function AttachmentsDialog({
         </Button>
         <div className="space-y-2">
           {isLoading ? (
-            <div className="text-sm text-muted-foreground">Carregando comprovantes...</div>
+            <div className="space-y-2" aria-hidden="true">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
           ) : attachments.length ? (
             attachments.map((attachment) => (
               <AttachmentRow

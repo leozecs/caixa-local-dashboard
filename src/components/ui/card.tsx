@@ -1,19 +1,29 @@
 import * as React from "react";
+import { motion, useReducedMotion } from "framer-motion";
 
 import { cn } from "@/lib/utils";
 
-const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div
+type CardProps = React.ComponentPropsWithoutRef<typeof motion.div>;
+
+const Card = React.forwardRef<HTMLDivElement, CardProps>(({ className, ...props }, ref) => {
+  const prefersReducedMotion = useReducedMotion();
+
+  return (
+    <motion.div
       ref={ref}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 14 }}
+      whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-24px" }}
+      transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
+      whileHover={prefersReducedMotion ? undefined : { y: -2 }}
       className={cn(
-        "rounded-lg border border-border/75 bg-card/95 text-card-foreground shadow-[0_1px_2px_oklch(0.2_0.03_256_/_0.05),0_16px_44px_oklch(0.2_0.03_256_/_0.04)] transition-[border-color,box-shadow,transform] duration-200",
+        "rounded-lg border border-border/75 bg-card/95 text-card-foreground shadow-[0_1px_2px_oklch(0.2_0.03_256_/_0.05),0_16px_44px_oklch(0.2_0.03_256_/_0.04)] transition-[border-color,box-shadow,transform] duration-200 will-change-transform",
         className,
       )}
       {...props}
     />
-  ),
-);
+  );
+});
 Card.displayName = "Card";
 
 const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(

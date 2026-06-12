@@ -29,6 +29,7 @@ import { ptBR } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -112,8 +113,7 @@ function DashboardPage() {
     enabled: Boolean(store?.id),
   });
 
-  if (loadingStore || loadingEntries || loadingMonths)
-    return <div className="text-sm text-muted-foreground">Carregando dashboard...</div>;
+  if (loadingStore || loadingEntries || loadingMonths) return <DashboardSkeleton />;
   if (!store)
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada à sua conta.</div>;
 
@@ -703,6 +703,54 @@ function buildExpenseTicks(values: number[]) {
   if (max <= 20000) return [0, 5000, 10000, 15000, 20000];
   if (max <= 100000) return [0, 10000, 20000, 50000, 70000, 90000];
   return [0, 100000, 250000, 500000, 750000, 1000000];
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 border-b border-border/70 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-44" />
+          <Skeleton className="h-4 w-72 max-w-full" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-8 w-32" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <Card key={index} className="shadow-none">
+            <CardContent className="p-4">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="mt-3 h-8 w-28" />
+              <Skeleton className="mt-3 h-3 w-20" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Card className="xl:col-span-2 shadow-none">
+          <CardHeader className="pb-2">
+            <Skeleton className="h-4 w-44" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-[260px] w-full" />
+          </CardContent>
+        </Card>
+        <Card className="shadow-none">
+          <CardHeader className="pb-2">
+            <Skeleton className="h-4 w-40" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-[260px] w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
 }
 
 function getMonthWeek(date: Date) {

@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
@@ -79,9 +80,11 @@ function AppShell() {
   const { session, loading } = useSession();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarScrolled, setSidebarScrolled] = useState(false);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>(() =>
     readDismissedAlertIds(),
   );
+  const prefersReducedMotion = useReducedMotion();
   const isAdmin = session?.role === "owner";
   const inAdmin = pathname.startsWith("/admin");
   const { data: currentStore } = useQuery({
@@ -151,6 +154,13 @@ function AppShell() {
     setDismissedAlertIds(ids);
   }, [pathname, storeAlerts]);
 
+  useEffect(() => {
+    const updateScrolled = () => setSidebarScrolled(window.scrollY > 8);
+    updateScrolled();
+    window.addEventListener("scroll", updateScrolled, { passive: true });
+    return () => window.removeEventListener("scroll", updateScrolled);
+  }, []);
+
   if (loading || !session) return null;
 
   const shellName = inAdmin ? "Admin Caixa Local" : currentStore?.name || "Loja";
@@ -159,7 +169,17 @@ function AppShell() {
   return (
     <div className="min-h-screen bg-background text-foreground" style={sidebarTheme}>
       {/* Sidebar desktop */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[18px_0_50px_oklch(0.2_0.03_256_/_0.08)] lg:flex">
+      <motion.aside
+        initial={prefersReducedMotion ? false : { opacity: 0, x: -18 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+        className={cn(
+          "fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r text-sidebar-foreground shadow-[18px_0_50px_oklch(0.2_0.03_256_/_0.08)] backdrop-blur-xl transition-[background-color,border-color,box-shadow] duration-300 lg:flex",
+          sidebarScrolled
+            ? "border-white/10 bg-sidebar/90 shadow-[18px_0_70px_oklch(0.12_0.03_256_/_0.18)]"
+            : "border-sidebar-border bg-sidebar/95",
+        )}
+      >
         <BrandBlock title={shellName} logoUrl={currentStore?.logoUrl} />
         <SidebarNav items={navItems} pathname={pathname} />
         <div className="mt-auto border-t border-sidebar-border p-3">
@@ -167,30 +187,48 @@ function AppShell() {
           <div className="text-sm font-medium truncate">{session.name}</div>
           <div className="text-xs text-sidebar-foreground/60 truncate">{session.email}</div>
         </div>
-      </aside>
+      </motion.aside>
 
       {/* Mobile drawer */}
-      {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <aside className="relative w-64 bg-sidebar text-sidebar-foreground flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
-              <BrandBlock title={shellName} logoUrl={currentStore?.logoUrl} compact />
-              <button
-                onClick={() => setMobileOpen(false)}
-                className="p-1 rounded-md hover:bg-sidebar-accent"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <SidebarNav
-              items={navItems}
-              pathname={pathname}
-              onNavigate={() => setMobileOpen(false)}
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div
+            className="fixed inset-0 z-50 flex lg:hidden"
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <motion.div
+              className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+              onClick={() => setMobileOpen(false)}
+              aria-hidden="true"
             />
-          </aside>
-        </div>
-      )}
+            <motion.aside
+              initial={prefersReducedMotion ? false : { opacity: 0, x: -24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -24 }}
+              transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+              className="relative flex w-64 flex-col bg-sidebar/95 text-sidebar-foreground shadow-2xl backdrop-blur-xl"
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
+                <BrandBlock title={shellName} logoUrl={currentStore?.logoUrl} compact />
+                <button
+                  onClick={() => setMobileOpen(false)}
+                  className="p-1 rounded-md hover:bg-sidebar-accent"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <SidebarNav
+                items={navItems}
+                pathname={pathname}
+                onNavigate={() => setMobileOpen(false)}
+              />
+            </motion.aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main */}
       <div className="flex min-h-screen min-w-0 flex-col lg:ml-64">
@@ -244,7 +282,17 @@ function AppShell() {
 
         <main className="min-w-0 flex-1 px-4 pb-24 pt-5 sm:px-5 lg:px-7 lg:pb-8 lg:pt-7">
           <div className="mx-auto w-full max-w-[1500px]">
-            <Outlet />
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={pathname}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 10, filter: "blur(2px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={prefersReducedMotion ? undefined : { opacity: 0, y: -6, filter: "blur(2px)" }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+              >
+                <Outlet />
+              </motion.div>
+            </AnimatePresence>
           </div>
         </main>
 
@@ -260,16 +308,25 @@ function AppShell() {
                 to={item.to}
                 className={cn(
                   "relative flex min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-md px-2 py-1 text-[10px] transition-colors",
-                  active ? "bg-accent text-primary" : "text-muted-foreground",
+                  active ? "text-primary" : "text-muted-foreground",
                 )}
               >
-                <Icon className="h-4 w-4" />
-                {item.badge ? (
-                  <span className="absolute right-2 top-0 min-w-4 rounded-full bg-destructive px-1 text-[10px] leading-4 text-destructive-foreground">
-                    {item.badge}
-                  </span>
-                ) : null}
-                {item.label}
+                {active && (
+                  <motion.span
+                    layoutId="mobile-active-nav"
+                    className="absolute inset-0 rounded-md bg-accent"
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  />
+                )}
+                <span className="relative grid place-items-center gap-0.5">
+                  <Icon className="h-4 w-4" />
+                  {item.badge ? (
+                    <span className="absolute right-2 top-0 min-w-4 rounded-full bg-destructive px-1 text-[10px] leading-4 text-destructive-foreground">
+                      {item.badge}
+                    </span>
+                  ) : null}
+                  {item.label}
+                </span>
               </Link>
             );
           })}
@@ -345,19 +402,30 @@ function SidebarNav({
             to={item.to}
             onClick={onNavigate}
             className={cn(
-              "relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-[background-color,color,transform] duration-200 ease-out active:translate-y-px",
+              "relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-[background-color,color,transform] duration-200 ease-out hover:translate-x-1 active:scale-[0.99]",
               active
-                ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)]"
+                ? "text-sidebar-accent-foreground font-medium shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)]"
                 : "text-sidebar-foreground/75 hover:bg-sidebar-accent/65 hover:text-sidebar-foreground",
             )}
           >
             {active && (
-              <span className="absolute left-1 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-sidebar-foreground/70" />
+              <>
+                <motion.span
+                  layoutId="desktop-active-nav-bg"
+                  className="absolute inset-0 rounded-lg bg-sidebar-accent"
+                  transition={{ type: "spring", stiffness: 430, damping: 36 }}
+                />
+                <motion.span
+                  layoutId="desktop-active-nav-indicator"
+                  className="absolute left-1 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-sidebar-foreground/70"
+                  transition={{ type: "spring", stiffness: 430, damping: 36 }}
+                />
+              </>
             )}
-            <Icon className="h-4 w-4" />
-            <span className="truncate">{item.label}</span>
+            <Icon className="relative h-4 w-4" />
+            <span className="relative truncate">{item.label}</span>
             {item.badge ? (
-              <span className="ml-auto min-w-5 rounded-full bg-destructive px-1.5 py-0.5 text-center text-[10px] leading-none text-destructive-foreground">
+              <span className="relative ml-auto min-w-5 rounded-full bg-destructive px-1.5 py-0.5 text-center text-[10px] leading-none text-destructive-foreground">
                 {item.badge}
               </span>
             ) : null}

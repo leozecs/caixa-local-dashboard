@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { motion, useReducedMotion } from "framer-motion";
 import { useState } from "react";
 import {
   ArrowRight,
@@ -54,6 +55,7 @@ const benefitItems = [
 
 function LoginPage() {
   const navigate = useNavigate();
+  const prefersReducedMotion = useReducedMotion();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberAccess, setRememberAccess] = useState(true);
@@ -123,7 +125,12 @@ function LoginPage() {
       />
 
       <div className="relative mx-auto grid min-h-screen w-full max-w-7xl grid-cols-1 lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="hidden h-screen overflow-hidden flex-col justify-between px-10 py-8 text-white lg:flex xl:px-14">
+        <motion.section
+          initial={prefersReducedMotion ? false : { opacity: 0, x: -18 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.58, ease: [0.22, 1, 0.36, 1] }}
+          className="hidden h-screen overflow-hidden flex-col justify-between px-10 py-8 text-white lg:flex xl:px-14"
+        >
           <div className="flex items-center gap-3">
             <BrandMark variant="dark" />
             <div>
@@ -171,10 +178,15 @@ function LoginPage() {
           <p className="text-xs text-slate-300/55">
             Copyright {new Date().getFullYear()} Caixa Local. Todos os direitos reservados.
           </p>
-        </section>
+        </motion.section>
 
         <section className="flex min-h-screen items-center justify-center px-4 py-6 sm:px-6 lg:px-10">
-          <div className="login-card-enter w-full max-w-[450px]">
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 18, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.56, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+            className="login-card-enter w-full max-w-[450px]"
+          >
             <div className="mb-7 flex items-center justify-between lg:hidden">
               <div className="flex items-center gap-3 text-white">
                 <BrandMark variant="dark" />
@@ -185,7 +197,7 @@ function LoginPage() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-white/60 bg-white/96 p-5 shadow-[0_28px_80px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+            <div className="rounded-[24px] border border-white/60 bg-white/[0.92] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.76)] ring-1 ring-white/35 backdrop-blur-2xl supports-[backdrop-filter]:bg-white/[0.82]">
               <div className="mb-5">
                 <div className="mb-4 hidden items-center gap-3 lg:flex">
                   <BrandMark />
@@ -221,26 +233,40 @@ function LoginPage() {
                 </div>
               </div>
 
-              <div className="mb-4 grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-sm font-medium">
+              <div className="mb-4 grid grid-cols-2 rounded-lg bg-slate-100/85 p-1 text-sm font-medium shadow-inner shadow-slate-200/70">
                 <button
                   type="button"
                   className={[
-                    "rounded-md px-3 py-2 transition",
-                    mode === "login" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500",
+                    "relative overflow-hidden rounded-md px-3 py-2 transition",
+                    mode === "login" ? "text-slate-950" : "text-slate-500 hover:text-slate-700",
                   ].join(" ")}
                   onClick={() => setMode("login")}
                 >
-                  Login
+                  {mode === "login" && (
+                    <motion.span
+                      layoutId="login-mode-pill"
+                      className="absolute inset-0 rounded-md bg-white shadow-sm"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                  <span className="relative">Login</span>
                 </button>
                 <button
                   type="button"
                   className={[
-                    "rounded-md px-3 py-2 transition",
-                    mode === "cadastro" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500",
+                    "relative overflow-hidden rounded-md px-3 py-2 transition",
+                    mode === "cadastro" ? "text-slate-950" : "text-slate-500 hover:text-slate-700",
                   ].join(" ")}
                   onClick={() => setMode("cadastro")}
                 >
-                  Cadastro
+                  {mode === "cadastro" && (
+                    <motion.span
+                      layoutId="login-mode-pill"
+                      className="absolute inset-0 rounded-md bg-white shadow-sm"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                  <span className="relative">Cadastro</span>
                 </button>
               </div>
 
@@ -371,7 +397,7 @@ function LoginPage() {
             <div className="mt-5 text-center text-xs text-slate-300/70 lg:hidden">
               Copyright {new Date().getFullYear()} Caixa Local. {APP_VERSION}
             </div>
-          </div>
+          </motion.div>
         </section>
       </div>
     </main>
