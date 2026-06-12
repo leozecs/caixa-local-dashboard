@@ -593,6 +593,22 @@ function monthlyOccurrenceDate(seedDate: Date, month: Date) {
   return new Date(month.getFullYear(), month.getMonth(), Math.min(day, monthEnd));
 }
 
+function installmentLimitForRow(row: Pick<EntryRow, "installments">) {
+  return (row.installments ?? 1) > 1
+    ? Math.min(row.installments ?? 1, INSTALLMENT_CALENDAR_MONTHS)
+    : null;
+}
+
+function buildProjectedInstallmentMonthKeys(seed: Pick<EntryRow, "entry_date" | "installments">) {
+  const installmentLimit = installmentLimitForRow(seed);
+  if (!installmentLimit) return [];
+
+  const seedMonth = startOfMonth(parseISO(seed.entry_date));
+  return Array.from({ length: installmentLimit }, (_, index) =>
+    formatDateKey(addMonths(seedMonth, index)),
+  );
+}
+
 async function ensureRecurringEntries(
   client: ReturnType<typeof requireSupabase>,
   storeId: string,
@@ -621,7 +637,7 @@ async function ensureRecurringEntries(
   const rows = (seeds as EntryRow[]).flatMap((seed) => {
     const seedDate = parseISO(seed.entry_date);
     const seedMonth = startOfMonth(seedDate);
-    const installmentLimit = (seed.installments ?? 1) > 1 ? (seed.installments ?? 1) : null;
+    const installmentLimit = installmentLimitForRow(seed);
     const rangeEnd = installmentLimit
       ? minDate(requestedEnd, calendarEnd)
       : recurringMaterializationEnd(end);
@@ -675,10 +691,28 @@ async function ensureRecurringEntries(
 
   if (!rows.length) return;
 
-  const { error: upsertError } = await client.from("financial_entries").upsert(rows, {
-    onConflict: "store_id,recurring_parent_id,recurring_month",
-  });
-  if (upsertError) throw upsertError;
+  const parentIds = Array.from(new Set(rows.map((row) => String(row.recurring_parent_id))));
+  const recurringMonths = Array.from(new Set(rows.map((row) => String(row.recurring_month))));
+  const { data: existingRows, error: existingError } = await client
+    .from("financial_entries")
+    .select("recurring_parent_id, recurring_month")
+    .eq("store_id", storeId)
+    .in("recurring_parent_id", parentIds)
+    .in("recurring_month", recurringMonths);
+
+  if (existingError) throw existingError;
+
+  const existingKeys = new Set(
+    (existingRows || []).map((row) => `${row.recurring_parent_id}:${row.recurring_month}`),
+  );
+  const rowsToInsert = rows.filter(
+    (row) => !existingKeys.has(`${row.recurring_parent_id}:${row.recurring_month}`),
+  );
+
+  if (!rowsToInsert.length) return;
+
+  const { error: insertError } = await client.from("financial_entries").insert(rowsToInsert);
+  if (insertError) throw insertError;
 }
 
 function toEntry(row: EntryRow): Entry {
@@ -1647,21 +1681,22 @@ export async function listEntryMonths(storeId: string) {
 
   const { data, error } = await client
     .from("financial_entries")
-    .select("entry_date")
+    .select("entry_date, installments, is_recurring, recurring_parent_id")
     .eq("store_id", storeId)
     .order("entry_date", { ascending: false });
 
   if (error) throw error;
 
-  return Array.from(
-    new Set(
-      (data || []).map((row) =>
-        startOfMonth(parseISO(String(row.entry_date)))
-          .toISOString()
-          .slice(0, 10),
-      ),
-    ),
-  );
+  const monthKeys = new Set<string>();
+  (data || []).forEach((row) => {
+    monthKeys.add(formatDateKey(startOfMonth(parseISO(String(row.entry_date)))));
+    const entryRow = row as Pick<EntryRow, "entry_date" | "installments" | "recurring_parent_id">;
+    if (!entryRow.recurring_parent_id) {
+      buildProjectedInstallmentMonthKeys(entryRow).forEach((monthKey) => monthKeys.add(monthKey));
+    }
+  });
+
+  return Array.from(monthKeys).sort((left, right) => (left > right ? -1 : 1));
 }
 
 function installmentCountFor(entry: Pick<Entry, "installments">) {
