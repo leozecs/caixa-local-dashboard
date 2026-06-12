@@ -571,9 +571,8 @@ function formatDateKey(date: Date) {
   return format(date, "yyyy-MM-dd");
 }
 
-function recurringMaterializationEnd(end: string, hasInstallmentLimit: boolean) {
+function recurringMaterializationEnd(end: string) {
   const requestedEnd = parseISO(end);
-  if (hasInstallmentLimit) return requestedEnd;
   const currentMonthEnd = addMonths(startOfMonth(new Date()), 1);
   return requestedEnd.getTime() < currentMonthEnd.getTime() ? requestedEnd : currentMonthEnd;
 }
@@ -591,8 +590,8 @@ async function ensureRecurringEntries(
   end: string,
 ) {
   const rangeStart = parseISO(start);
-  const requestedEnd = parseISO(end);
-  if (requestedEnd.getTime() <= rangeStart.getTime()) return;
+  const rangeEnd = recurringMaterializationEnd(end);
+  if (rangeEnd.getTime() <= rangeStart.getTime()) return;
 
   const { data: seeds, error } = await client
     .from("financial_entries")
@@ -600,7 +599,7 @@ async function ensureRecurringEntries(
     .eq("store_id", storeId)
     .eq("is_recurring", true)
     .is("recurring_parent_id", null)
-    .lt("entry_date", formatDateKey(requestedEnd));
+    .lt("entry_date", formatDateKey(rangeEnd));
 
   if (error) throw error;
   if (!seeds?.length) return;
@@ -609,7 +608,6 @@ async function ensureRecurringEntries(
     const seedDate = parseISO(seed.entry_date);
     const seedMonth = startOfMonth(seedDate);
     const installmentLimit = (seed.installments ?? 1) > 1 ? (seed.installments ?? 1) : null;
-    const rangeEnd = recurringMaterializationEnd(end, Boolean(installmentLimit));
     const occurrences: Array<Record<string, unknown>> = [];
     let cursor = seedMonth;
     let occurrenceIndex = 0;
@@ -1623,7 +1621,12 @@ export async function listEntries(storeId: string, start?: string, end?: string)
 
 export async function listEntryMonths(storeId: string) {
   const client = requireSupabase();
-  await ensureRecurringEntries(client, storeId, "2000-01-01", "2100-01-01");
+  await ensureRecurringEntries(
+    client,
+    storeId,
+    "2000-01-01",
+    addMonths(startOfMonth(new Date()), 1).toISOString().slice(0, 10),
+  );
 
   const { data, error } = await client
     .from("financial_entries")
