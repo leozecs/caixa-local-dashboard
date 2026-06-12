@@ -206,9 +206,7 @@ function LancamentosPage() {
 
   const receitas = filtered.filter((entry) => entry.type === "receita");
   const despesas = filtered.filter((entry) => entry.type === "despesa");
-  const totalReceitas = receitas
-    .filter((entry) => isEntryDue(entry.date))
-    .reduce((sum, entry) => sum + entry.amount, 0);
+  const totalReceitas = receitas.reduce((sum, entry) => sum + entry.amount, 0);
   const totalDespesas = despesas.reduce((sum, entry) => sum + entry.amount, 0);
   const saldo = totalReceitas - totalDespesas;
   const installmentEntries = filtered.filter((entry) => (entry.installments || 1) > 1);
@@ -1346,12 +1344,4 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </div>
   );
-}
-
-function isEntryDue(date: string) {
-  const entryDate = parseISO(date);
-  const today = new Date();
-  entryDate.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-  return entryDate.getTime() <= today.getTime();
 }

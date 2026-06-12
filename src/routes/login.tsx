@@ -5,12 +5,10 @@ import {
   Building2,
   CheckCircle2,
   CircleDollarSign,
-  Copy,
   KeyRound,
   Loader2,
   LockKeyhole,
   Mail,
-  QrCode,
   ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -21,8 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { requestPasswordReset, signIn } from "@/lib/auth";
 import { isValidEmail, normalizeEmail } from "@/lib/security";
-import { formatBRLPrecise } from "@/lib/data";
-import { getPixQrCodeUrl, PUBLIC_PLAN_CHECKOUTS } from "@/lib/pix";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Entrar | Caixa Local" }] }),
@@ -64,12 +60,8 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [mode, setMode] = useState<"login" | "cadastro">("login");
-  const [selectedPlanName, setSelectedPlanName] = useState<string>(PUBLIC_PLAN_CHECKOUTS[1].name);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const selectedPlan =
-    PUBLIC_PLAN_CHECKOUTS.find((plan) => plan.name === selectedPlanName) ||
-    PUBLIC_PLAN_CHECKOUTS[1];
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -224,7 +216,7 @@ function LoginPage() {
                   <p className="text-sm leading-6 text-slate-500">
                     {mode === "login"
                       ? "Acesse seu painel para acompanhar caixa, lançamentos e relatórios com segurança."
-                      : "Escolha um plano, pague via Pix e envie o comprovante para liberação do acesso."}
+                      : "Cadastros de novas lojas estao sendo liberados pela area administrativa."}
                   </p>
                 </div>
               </div>
@@ -359,72 +351,15 @@ function LoginPage() {
                   </Button>
                 </form>
               ) : (
-                <div className="space-y-4">
-                  <div className="grid gap-2">
-                    {PUBLIC_PLAN_CHECKOUTS.map((plan) => (
-                      <button
-                        key={plan.name}
-                        type="button"
-                        className={[
-                          "rounded-lg border p-3 text-left transition",
-                          selectedPlan.name === plan.name
-                            ? "border-emerald-600 bg-emerald-50"
-                            : "border-slate-200 bg-white hover:border-slate-300",
-                        ].join(" ")}
-                        onClick={() => setSelectedPlanName(plan.name)}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="font-semibold text-slate-950">{plan.name}</div>
-                          <div className="text-sm font-semibold text-emerald-700">
-                            {formatBRLPrecise(plan.amount)}
-                          </div>
-                        </div>
-                        <div className="mt-1 text-xs leading-5 text-slate-500">
-                          {plan.description}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
-                      <QrCode className="h-4 w-4 text-emerald-700" />
-                      Pagamento Pix do plano {selectedPlan.name}
-                    </div>
-                    <div className="flex flex-col items-center gap-3">
-                      <img
-                        src={getPixQrCodeUrl(selectedPlan.pixCode, 180)}
-                        alt={`QR Code Pix ${selectedPlan.name}`}
-                        className="h-40 w-40 rounded-md bg-white p-2"
-                      />
-                      <div className="max-w-full rounded-md bg-white px-3 py-2 text-xs text-slate-500">
-                        <div className="line-clamp-2 break-all">{selectedPlan.pixCode}</div>
-                      </div>
-                      <Button
-                        type="button"
-                        className="h-10 w-full rounded-lg bg-[#0f3d38] text-white hover:bg-[#125148]"
-                        onClick={async () => {
-                          await navigator.clipboard.writeText(selectedPlan.pixCode);
-                          setMessage(
-                            "Pix copia e cola copiado. Envie o comprovante para liberar o cadastro.",
-                          );
-                        }}
-                      >
-                        <Copy className="h-4 w-4" />
-                        Copiar Pix
-                      </Button>
-                    </div>
-                  </div>
-
-                  {message && (
-                    <div
-                      role="status"
-                      className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800"
-                    >
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>{message}</span>
-                    </div>
-                  )}
+                <div
+                  role="status"
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-sm leading-6 text-slate-600"
+                >
+                  <div className="font-semibold text-slate-950">Cadastro pelo administrador</div>
+                  <p className="mt-1">
+                    Pagamentos online, Pix e envio de comprovantes estao desativados nesta tela. O
+                    acesso de novas lojas deve ser criado e liberado pela area administrativa.
+                  </p>
                 </div>
               )}
 
