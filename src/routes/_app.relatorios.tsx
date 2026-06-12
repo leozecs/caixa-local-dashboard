@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import JSZip from "jszip";
-import { format, isSameMonth, parseISO, startOfMonth } from "date-fns";
+import { addMonths, format, isSameMonth, parseISO, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -95,14 +95,18 @@ function RelatoriosPage() {
     enabled: Boolean(session),
   });
 
-  const { data: entries = [] } = useQuery({
-    queryKey: ["entries", store?.id],
-    queryFn: () => listEntries(store!.id, "2000-01-01", "2100-01-01"),
-    enabled: Boolean(store?.id),
-  });
   const { data: entryMonths = [] } = useQuery({
     queryKey: ["entry-months", store?.id],
     queryFn: () => listEntryMonths(store!.id),
+    enabled: Boolean(store?.id),
+  });
+  const entriesRange = useMemo(
+    () => buildEntriesRange(entryMonths, parseISO(selected)),
+    [entryMonths, selected],
+  );
+  const { data: entries = [] } = useQuery({
+    queryKey: ["entries", store?.id, entriesRange.start, entriesRange.end],
+    queryFn: () => listEntries(store!.id, entriesRange.start, entriesRange.end),
     enabled: Boolean(store?.id),
   });
   const months = useMemo(() => {
@@ -671,6 +675,20 @@ function buildSemesterHistory(entries: Entry[], year: number, semester: 1 | 2) {
       lucro: faturamento - despesas,
     };
   });
+}
+
+function buildEntriesRange(monthKeys: string[], selectedDate: Date) {
+  const months = [
+    startOfMonth(selectedDate),
+    ...monthKeys.map((monthKey) => startOfMonth(parseISO(monthKey))),
+  ].sort((left, right) => left.getTime() - right.getTime());
+  const firstMonth = months[0];
+  const lastMonth = months[months.length - 1];
+
+  return {
+    start: format(firstMonth, "yyyy-MM-dd"),
+    end: format(addMonths(lastMonth, 1), "yyyy-MM-dd"),
+  };
 }
 
 function buildReportRows(entries: Entry[]) {
