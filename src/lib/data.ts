@@ -895,11 +895,26 @@ function toAdminAiInsight(row: AdminAiInsightDbRow): AdminAiInsight {
 }
 
 function isMissingTableError(error: unknown) {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? (error as { code?: string }).code
+      : "";
+  const message =
+    typeof error === "object" && error !== null && "message" in error
+      ? String((error as { message?: unknown }).message || "")
+      : "";
+
   return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "42P01"
+    code === "42P01" ||
+    code === "PGRST205" ||
+    message.includes("Could not find the table") ||
+    (message.includes("relation") && message.includes("does not exist"))
+  );
+}
+
+function notesSchemaError() {
+  return new Error(
+    "A aba Anotacoes ainda precisa da migracao 20260612120000_store_notes.sql aplicada no Supabase.",
   );
 }
 
@@ -943,7 +958,7 @@ export async function listAiInsights(storeId: string): Promise<AiInsight[]> {
     .limit(10);
 
   if (error) {
-    if (isMissingTableError(error)) return [];
+    if (isMissingTableError(error)) throw notesSchemaError();
     throw error;
   }
 
@@ -992,6 +1007,7 @@ export async function saveSubscriptionPlan(input: {
       : client.from("subscription_plans").insert(payload);
 
   const { data, error } = await query.select().single();
+  if (error && isMissingTableError(error)) throw notesSchemaError();
   if (error) throw error;
   return toSubscriptionPlan(data as SubscriptionPlanDbRow);
 }
@@ -999,6 +1015,7 @@ export async function saveSubscriptionPlan(input: {
 export async function deleteSubscriptionPlan(id: string) {
   const client = requireSupabase();
   const { error } = await client.from("subscription_plans").delete().eq("id", id);
+  if (error && isMissingTableError(error)) throw notesSchemaError();
   if (error) throw error;
 }
 
@@ -1630,8 +1647,70 @@ export async function listEntryMonths(storeId: string) {
   );
 }
 
+function installmentCountFor(entry: Pick<Entry, "installments">) {
+  return Math.max(1, Math.min(120, Math.round(entry.installments || 1)));
+}
+
+function buildInstallmentChildRows(parent: EntryRow) {
+  const installments = installmentCountFor({ installments: parent.installments ?? 1 });
+  if (installments <= 1) return [];
+
+  const seedDate = parseISO(parent.entry_date);
+  const seedMonth = startOfMonth(seedDate);
+  const timestamp = new Date().toISOString();
+  const rows: Array<Record<string, unknown>> = [];
+
+  for (let index = 1; index < installments; index += 1) {
+    const cursor = addMonths(seedMonth, index);
+    const occurrenceDate = monthlyOccurrenceDate(seedDate, cursor);
+    rows.push({
+      store_id: parent.store_id,
+      entry_date: formatDateKey(occurrenceDate),
+      type: parent.type,
+      category: parent.category,
+      description: parent.description,
+      payment_method: parent.payment_method,
+      amount: parent.amount,
+      sale_total_amount: parent.sale_total_amount ?? null,
+      product_cost_amount: parent.product_cost_amount ?? null,
+      salesperson_name: parent.salesperson_name ?? null,
+      commission_percent: parent.commission_percent ?? null,
+      commission_amount: parent.commission_amount ?? 0,
+      down_payment_amount: parent.down_payment_amount ?? null,
+      installments,
+      import_source: parent.import_source ?? null,
+      is_recurring: true,
+      recurring_parent_id: parent.id,
+      recurring_month: formatDateKey(cursor),
+      updated_at: timestamp,
+    });
+  }
+
+  return rows;
+}
+
+async function refreshInstallmentChildren(
+  client: ReturnType<typeof requireSupabase>,
+  parent: EntryRow,
+) {
+  const { error: deleteError } = await client
+    .from("financial_entries")
+    .delete()
+    .eq("store_id", parent.store_id)
+    .eq("recurring_parent_id", parent.id);
+
+  if (deleteError) throw deleteError;
+
+  const rows = buildInstallmentChildRows(parent);
+  if (!rows.length) return;
+
+  const { error: insertError } = await client.from("financial_entries").insert(rows);
+  if (insertError) throw insertError;
+}
+
 export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
   const client = requireSupabase();
+  const installments = installmentCountFor(entry);
   const commissionPercent =
     entry.type === "receita" &&
     entry.commissionPercent !== null &&
@@ -1669,9 +1748,9 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
       entry.downPaymentAmount !== undefined
         ? Math.round(entry.downPaymentAmount * 100)
         : null,
-    installments: Math.max(1, Math.min(120, Math.round(entry.installments || 1))),
+    installments,
     import_source: entry.importSource?.trim() || null,
-    is_recurring: Boolean(entry.isRecurring),
+    is_recurring: installments > 1 || Boolean(entry.isRecurring),
     updated_at: new Date().toISOString(),
   };
 
@@ -1681,7 +1760,13 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
 
   const { data, error } = await query.select().single();
   if (error) throw error;
-  return toEntry(data as EntryRow);
+
+  const savedEntry = data as EntryRow;
+  if (!savedEntry.recurring_parent_id) {
+    await refreshInstallmentChildren(client, savedEntry);
+  }
+
+  return toEntry(savedEntry);
 }
 
 export async function deleteEntriesByImportSource(storeId: string, importSource: string) {
@@ -1756,6 +1841,7 @@ export async function updateNoteTopic(input: { id: string; title: string }) {
 export async function deleteNoteTopic(id: string) {
   const client = requireSupabase();
   const { error } = await client.from("note_topics").delete().eq("id", id);
+  if (error && isMissingTableError(error)) throw notesSchemaError();
   if (error) throw error;
 }
 
@@ -1769,7 +1855,7 @@ export async function listNoteBlocks(storeId: string): Promise<NoteBlock[]> {
     .order("updated_at", { ascending: false });
 
   if (error) {
-    if (isMissingTableError(error)) return [];
+    if (isMissingTableError(error)) throw notesSchemaError();
     throw error;
   }
 
@@ -1793,6 +1879,7 @@ export async function createNoteBlock(input: { storeId: string; topicId: string;
     .select("id, store_id, topic_id, title, content, sort_order, updated_at, created_at")
     .single();
 
+  if (error && isMissingTableError(error)) throw notesSchemaError();
   if (error) throw error;
   return toNoteBlock(data as NoteBlockDbRow);
 }
@@ -1813,6 +1900,7 @@ export async function updateNoteBlock(input: { id: string; title: string; conten
     .select("id, store_id, topic_id, title, content, sort_order, updated_at, created_at")
     .single();
 
+  if (error && isMissingTableError(error)) throw notesSchemaError();
   if (error) throw error;
   return toNoteBlock(data as NoteBlockDbRow);
 }
@@ -1820,6 +1908,7 @@ export async function updateNoteBlock(input: { id: string; title: string; conten
 export async function deleteNoteBlock(id: string) {
   const client = requireSupabase();
   const { error } = await client.from("note_blocks").delete().eq("id", id);
+  if (error && isMissingTableError(error)) throw notesSchemaError();
   if (error) throw error;
 }
 

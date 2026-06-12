@@ -1,8 +1,17 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ChevronDown, FileText, FolderPlus, Plus, Save, StickyNote, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  FileText,
+  FolderPlus,
+  Plus,
+  Save,
+  StickyNote,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
@@ -28,7 +37,7 @@ import {
 } from "@/lib/data";
 
 export const Route = createFileRoute("/_app/anotacoes")({
-  head: () => ({ meta: [{ title: "Anotações - Caixa Local" }] }),
+  head: () => ({ meta: [{ title: "AnotaÃ§Ãµes - Caixa Local" }] }),
   component: AnotacoesPage,
 });
 
@@ -43,12 +52,20 @@ function AnotacoesPage() {
     queryFn: () => getCurrentStore(session!.profile),
     enabled: Boolean(session),
   });
-  const { data: topics = [], isLoading: loadingTopics } = useQuery({
+  const {
+    data: topics = [],
+    isLoading: loadingTopics,
+    error: topicsError,
+  } = useQuery({
     queryKey: ["note-topics", store?.id],
     queryFn: () => listNoteTopics(store!.id),
     enabled: Boolean(store?.id),
   });
-  const { data: blocks = [], isLoading: loadingBlocks } = useQuery({
+  const {
+    data: blocks = [],
+    isLoading: loadingBlocks,
+    error: blocksError,
+  } = useQuery({
     queryKey: ["note-blocks", store?.id],
     queryFn: () => listNoteBlocks(store!.id),
     enabled: Boolean(store?.id),
@@ -109,10 +126,10 @@ function AnotacoesPage() {
     mutationFn: updateNoteBlock,
     onSuccess: () => {
       invalidateNotes();
-      toast.success("Anotação salva.");
+      toast.success("AnotaÃ§Ã£o salva.");
     },
     onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Erro ao salvar anotação."),
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar anotaÃ§Ã£o."),
   });
   const deleteBlockMutation = useMutation({
     mutationFn: deleteNoteBlock,
@@ -126,44 +143,50 @@ function AnotacoesPage() {
   });
 
   if (!store) {
-    return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada à sua conta.</div>;
+    return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
   }
+
+  const loadingError = topicsError || blocksError;
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Anotações"
-        description="Temas e blocos de nota para registrar decisões, pendências e observações da rotina."
+        title="AnotaÃ§Ãµes"
+        description="Temas e blocos de nota para registrar decisÃµes, pendÃªncias e observaÃ§Ãµes da rotina."
       />
 
-      <Card className="shadow-none">
-        <CardContent className="p-4">
-          <form
-            className="grid gap-3 md:grid-cols-[1fr_auto]"
-            onSubmit={(event) => {
-              event.preventDefault();
-              createTopicMutation.mutate(new FormData(event.currentTarget));
-              event.currentTarget.reset();
-            }}
-          >
-            <div className="space-y-1.5">
-              <Label>Novo tema</Label>
-              <Input name="title" placeholder="Ex: Fechamento, fornecedores, ideias" required />
-            </div>
-            <Button
-              type="submit"
-              className="self-end gap-2"
-              disabled={createTopicMutation.isPending}
+      {loadingError ? (
+        <NotesUnavailable error={loadingError} />
+      ) : (
+        <Card className="shadow-none">
+          <CardContent className="p-4">
+            <form
+              className="grid gap-3 md:grid-cols-[1fr_auto]"
+              onSubmit={(event) => {
+                event.preventDefault();
+                createTopicMutation.mutate(new FormData(event.currentTarget));
+                event.currentTarget.reset();
+              }}
             >
-              <FolderPlus className="h-4 w-4" />
-              Criar tema
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+              <div className="space-y-1.5">
+                <Label>Novo tema</Label>
+                <Input name="title" placeholder="Ex: Fechamento, fornecedores, ideias" required />
+              </div>
+              <Button
+                type="submit"
+                className="self-end gap-2"
+                disabled={createTopicMutation.isPending}
+              >
+                <FolderPlus className="h-4 w-4" />
+                Criar tema
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
-      {loadingTopics || loadingBlocks ? (
-        <div className="text-sm text-muted-foreground">Carregando anotações...</div>
+      {loadingError ? null : loadingTopics || loadingBlocks ? (
+        <div className="text-sm text-muted-foreground">Carregando anotaÃ§Ãµes...</div>
       ) : topics.length ? (
         <div className="space-y-3">
           {topics.map((topic) => (
@@ -205,6 +228,23 @@ function AnotacoesPage() {
         <EmptyNotes />
       )}
     </div>
+  );
+}
+
+function NotesUnavailable({ error }: { error: unknown }) {
+  const message =
+    error instanceof Error ? error.message : "Nao foi possivel carregar a aba Anotacoes agora.";
+
+  return (
+    <Card className="border-warning/40 bg-warning/5 shadow-none">
+      <CardContent className="flex gap-3 p-4">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+        <div>
+          <div className="text-sm font-medium">Anotacoes indisponiveis</div>
+          <div className="mt-1 text-sm text-muted-foreground">{message}</div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -412,7 +452,7 @@ function EmptyNotes() {
         </div>
         <div className="mt-3 text-sm font-medium">Nenhum tema criado</div>
         <div className="mt-1 text-sm text-muted-foreground">
-          Crie um tema para organizar blocos de nota por rotina, fornecedor ou decisão.
+          Crie um tema para organizar blocos de nota por rotina, fornecedor ou decisÃ£o.
         </div>
       </CardContent>
     </Card>

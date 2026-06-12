@@ -479,6 +479,232 @@ async function getSubscriptionPlanAmount(env: unknown, plan: string) {
   return rows[0]?.amount ?? 0;
 }
 
+function readPaymentWebhookSecret(request: Request) {
+  const authorization = request.headers.get("authorization") || "";
+  if (authorization.startsWith("Bearer ")) return authorization.slice("Bearer ".length).trim();
+  return request.headers.get("x-payment-webhook-secret")?.trim() || "";
+}
+
+function parsePaymentAmountCents(body: { amount?: unknown; amountCents?: unknown }) {
+  if (typeof body.amountCents === "number" && Number.isFinite(body.amountCents)) {
+    return Math.round(body.amountCents);
+  }
+
+  if (typeof body.amount === "number" && Number.isFinite(body.amount)) {
+    return Math.round(body.amount * 100);
+  }
+
+  if (typeof body.amount === "string" && body.amount.trim()) {
+    const raw = body.amount.trim();
+    const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) return Math.round(parsed * 100);
+  }
+
+  return 0;
+}
+
+function parsePaymentDate(value: unknown) {
+  const parsed = typeof value === "string" && value ? new Date(value) : new Date();
+  if (Number.isNaN(parsed.getTime())) return new Date();
+  return parsed;
+}
+
+function addOneMonthDateKey(dateKey: string) {
+  const source = new Date(`${dateKey}T00:00:00`);
+  const targetYear = source.getMonth() === 11 ? source.getFullYear() + 1 : source.getFullYear();
+  const targetMonth = source.getMonth() === 11 ? 0 : source.getMonth() + 1;
+  const targetMonthEnd = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const targetDay = Math.min(source.getDate(), targetMonthEnd);
+  return new Date(targetYear, targetMonth, targetDay).toISOString().slice(0, 10);
+}
+
+async function findSubscriptionForPayment(
+  env: unknown,
+  input: { storeId?: string; subscriptionId?: string },
+) {
+  const filters = input.subscriptionId
+    ? `id=eq.${encodeURIComponent(input.subscriptionId)}`
+    : `store_id=eq.${encodeURIComponent(input.storeId || "")}`;
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/subscriptions?${filters}&select=id,store_id,plan,amount,next_charge_date,status&limit=1`,
+  );
+
+  if (!response.ok) {
+    throw new Response("Nao foi possivel localizar a assinatura.", { status: response.status });
+  }
+
+  const rows = (await response.json()) as Array<{
+    id: string;
+    store_id: string;
+    plan: string;
+    amount: number;
+    next_charge_date: string;
+    status: string;
+  }>;
+
+  return rows[0] || null;
+}
+
+async function paymentAlreadyProcessed(env: unknown, provider: string, paymentId: string) {
+  if (!provider || !paymentId) return false;
+  const response = await supabaseAdminFetch(
+    env,
+    `/rest/v1/billing_records?gateway_provider=eq.${encodeURIComponent(
+      provider,
+    )}&gateway_payment_id=eq.${encodeURIComponent(paymentId)}&select=id&limit=1`,
+  );
+  if (!response.ok) return false;
+  const rows = (await response.json()) as Array<{ id?: string }>;
+  return Boolean(rows[0]?.id);
+}
+
+async function handleSubscriptionPaymentWebhook(request: Request, env: unknown) {
+  if (request.method !== "POST") {
+    return jsonResponse({ message: "Metodo nao permitido." }, { status: 405 });
+  }
+
+  const expectedSecret = readEnv(env, "PAYMENT_WEBHOOK_SECRET");
+  if (!expectedSecret) {
+    return jsonResponse(
+      { message: "Configure PAYMENT_WEBHOOK_SECRET no ambiente do servidor." },
+      { status: 501 },
+    );
+  }
+
+  if (readPaymentWebhookSecret(request) !== expectedSecret) {
+    return jsonResponse({ message: "Webhook nao autorizado." }, { status: 401 });
+  }
+
+  const body = (await request.json().catch(() => null)) as {
+    storeId?: unknown;
+    subscriptionId?: unknown;
+    amount?: unknown;
+    amountCents?: unknown;
+    paidAt?: unknown;
+    provider?: unknown;
+    paymentId?: unknown;
+    reference?: unknown;
+  } | null;
+
+  const storeId = typeof body?.storeId === "string" ? body.storeId.trim() : "";
+  const subscriptionId = typeof body?.subscriptionId === "string" ? body.subscriptionId.trim() : "";
+  if (!storeId && !subscriptionId) {
+    return jsonResponse({ message: "Informe storeId ou subscriptionId." }, { status: 400 });
+  }
+
+  const amountCents = parsePaymentAmountCents(body || {});
+  if (amountCents <= 0) {
+    return jsonResponse({ message: "Valor pago invalido." }, { status: 400 });
+  }
+
+  const provider = typeof body?.provider === "string" ? sanitizeText(body.provider) : "webhook";
+  const paymentId =
+    typeof body?.paymentId === "string"
+      ? sanitizeText(body.paymentId)
+      : typeof body?.reference === "string"
+        ? sanitizeText(body.reference)
+        : "";
+
+  if (paymentId && (await paymentAlreadyProcessed(env, provider, paymentId))) {
+    return jsonResponse({ status: "already_processed" });
+  }
+
+  const subscription = await findSubscriptionForPayment(env, { storeId, subscriptionId });
+  if (!subscription) {
+    return jsonResponse({ message: "Assinatura nao encontrada." }, { status: 404 });
+  }
+  if (storeId && subscription.store_id !== storeId) {
+    return jsonResponse({ message: "Assinatura nao pertence a loja informada." }, { status: 409 });
+  }
+  if (amountCents < subscription.amount) {
+    return jsonResponse(
+      { message: "Valor pago menor que o valor da assinatura." },
+      { status: 422 },
+    );
+  }
+
+  const paidAt = parsePaymentDate(body?.paidAt);
+  const paidDate = paidAt.toISOString().slice(0, 10);
+  const dueDate = subscription.next_charge_date || paidDate;
+  const referenceMonth = new Date(`${dueDate}T00:00:00`);
+  referenceMonth.setDate(1);
+  const nextChargeDate = addOneMonthDateKey(dueDate);
+
+  const billingResponse = await supabaseAdminFetch(env, "/rest/v1/billing_records?select=id", {
+    method: "POST",
+    prefer: "return=representation",
+    body: JSON.stringify({
+      store_id: subscription.store_id,
+      subscription_id: subscription.id,
+      reference_month: referenceMonth.toISOString().slice(0, 10),
+      amount: amountCents,
+      due_date: dueDate,
+      paid_at: paidDate,
+      status: "pago",
+      notes: paymentId ? `Pagamento confirmado via ${provider}: ${paymentId}` : provider,
+      gateway_provider: provider,
+      gateway_payment_id: paymentId || null,
+    }),
+  });
+
+  if (!billingResponse.ok) {
+    return jsonResponse(
+      {
+        message: await readErrorMessage(
+          billingResponse,
+          "Pagamento confirmado, mas nao foi possivel registrar a cobranca.",
+        ),
+      },
+      { status: billingResponse.status },
+    );
+  }
+
+  const subscriptionResponse = await supabaseAdminFetch(
+    env,
+    `/rest/v1/subscriptions?id=eq.${encodeURIComponent(subscription.id)}`,
+    {
+      method: "PATCH",
+      prefer: "return=minimal",
+      body: JSON.stringify({
+        status: "ativa",
+        next_charge_date: nextChargeDate,
+        updated_at: new Date().toISOString(),
+      }),
+    },
+  );
+  if (!subscriptionResponse.ok) {
+    return jsonResponse(
+      { message: await readErrorMessage(subscriptionResponse, "Assinatura nao foi atualizada.") },
+      { status: subscriptionResponse.status },
+    );
+  }
+
+  const storeResponse = await supabaseAdminFetch(
+    env,
+    `/rest/v1/stores?id=eq.${encodeURIComponent(subscription.store_id)}`,
+    {
+      method: "PATCH",
+      prefer: "return=minimal",
+      body: JSON.stringify({ status: "ativa", updated_at: new Date().toISOString() }),
+    },
+  );
+  if (!storeResponse.ok) {
+    return jsonResponse(
+      { message: await readErrorMessage(storeResponse, "Loja nao foi liberada.") },
+      { status: storeResponse.status },
+    );
+  }
+
+  return jsonResponse({
+    status: "paid",
+    storeId: subscription.store_id,
+    subscriptionId: subscription.id,
+    nextChargeDate,
+  });
+}
+
 async function handleAdminCreateStore(request: Request, env: unknown) {
   if (request.method !== "POST") {
     return jsonResponse({ message: "Metodo nao permitido." }, { status: 405 });
@@ -1305,6 +1531,9 @@ export default {
       }
       if (url.pathname === "/api/store-members") {
         return applySecurityHeaders(await handleStoreMembers(request, env));
+      }
+      if (url.pathname === "/api/subscription-payment-webhook") {
+        return applySecurityHeaders(await handleSubscriptionPaymentWebhook(request, env));
       }
 
       const handler = await getServerEntry();
