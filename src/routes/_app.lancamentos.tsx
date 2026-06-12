@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { format, isSameMonth, parseISO, startOfMonth } from "date-fns";
+import { addMonths, format, isSameMonth, parseISO, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   ExternalLink,
@@ -51,6 +51,7 @@ import { useSession } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import {
   DESPESA_CATEGORIAS,
+  INSTALLMENT_CALENDAR_MONTHS,
   RECEITA_CATEGORIAS,
   deleteEntry,
   deleteEntryAttachment,
@@ -90,6 +91,8 @@ function LancamentosPage() {
   const [attachmentEntry, setAttachmentEntry] = useState<Entry | null>(null);
   const [listDialogType, setListDialogType] = useState<EntryType | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(startOfMonth(new Date()).toISOString());
+  const selectedMonthStart = useMemo(() => startOfMonth(parseISO(selectedMonth)), [selectedMonth]);
+  const selectedMonthEnd = useMemo(() => addMonths(selectedMonthStart, 1), [selectedMonthStart]);
 
   const { data: store } = useQuery({
     queryKey: ["current-store", session?.profile.id],
@@ -98,8 +101,13 @@ function LancamentosPage() {
   });
 
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ["entries", store?.id],
-    queryFn: () => listEntries(store!.id, "2000-01-01", "2100-01-01"),
+    queryKey: ["entries", store?.id, selectedMonthStart.toISOString()],
+    queryFn: () =>
+      listEntries(
+        store!.id,
+        format(selectedMonthStart, "yyyy-MM-dd"),
+        format(selectedMonthEnd, "yyyy-MM-dd"),
+      ),
     enabled: Boolean(store?.id),
   });
   const { data: entryMonths = [] } = useQuery({
@@ -882,7 +890,10 @@ function EntryModal({
   ]);
 
   const categories = type === "receita" ? receitaCategories : despesaCategories;
-  const installmentCount = Math.max(1, Math.round(Number(installments) || 1));
+  const installmentCount = Math.max(
+    1,
+    Math.min(INSTALLMENT_CALENDAR_MONTHS, Math.round(Number(installments) || 1)),
+  );
   const amountNumber = Number(amount);
   const installmentAmountNumber = Number(installmentAmount);
   const isPersonalProfile = profileType === "pessoal";
@@ -1121,13 +1132,17 @@ function EntryModal({
             <Input
               type="number"
               min="1"
-              max="120"
+              max={INSTALLMENT_CALENDAR_MONTHS}
               step="1"
               value={installments}
               onChange={(event) => {
                 const value = event.target.value;
-                setInstallments(value);
-                if (Number(value) > 1) {
+                const nextValue =
+                  Number(value) > INSTALLMENT_CALENDAR_MONTHS
+                    ? String(INSTALLMENT_CALENDAR_MONTHS)
+                    : value;
+                setInstallments(nextValue);
+                if (Number(nextValue) > 1) {
                   setUseInstallmentAmount(true);
                   setIsRecurring(true);
                 }
@@ -1191,6 +1206,7 @@ function EntryModal({
                   hasDownPayment &&
                   (downPaymentAmount.trim() === "" || Number(downPaymentAmount) < 0)) ||
                 Number(installments) < 1 ||
+                Number(installments) > INSTALLMENT_CALENDAR_MONTHS ||
                 (type === "receita" &&
                   !isPersonalProfile &&
                   productCostAmount.trim() !== "" &&

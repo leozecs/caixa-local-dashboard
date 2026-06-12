@@ -571,6 +571,16 @@ function formatDateKey(date: Date) {
   return format(date, "yyyy-MM-dd");
 }
 
+export const INSTALLMENT_CALENDAR_MONTHS = 36;
+
+function installmentCalendarEnd(from = new Date()) {
+  return addMonths(startOfMonth(from), INSTALLMENT_CALENDAR_MONTHS);
+}
+
+function minDate(left: Date, right: Date) {
+  return left.getTime() < right.getTime() ? left : right;
+}
+
 function recurringMaterializationEnd(end: string) {
   const requestedEnd = parseISO(end);
   const currentMonthEnd = addMonths(startOfMonth(new Date()), 1);
@@ -590,8 +600,12 @@ async function ensureRecurringEntries(
   end: string,
 ) {
   const rangeStart = parseISO(start);
-  const rangeEnd = recurringMaterializationEnd(end);
-  if (rangeEnd.getTime() <= rangeStart.getTime()) return;
+  const requestedEnd = parseISO(end);
+  if (requestedEnd.getTime() <= rangeStart.getTime()) return;
+
+  const calendarEnd = installmentCalendarEnd();
+  const seedQueryEnd = minDate(requestedEnd, calendarEnd);
+  if (seedQueryEnd.getTime() <= rangeStart.getTime()) return;
 
   const { data: seeds, error } = await client
     .from("financial_entries")
@@ -599,7 +613,7 @@ async function ensureRecurringEntries(
     .eq("store_id", storeId)
     .eq("is_recurring", true)
     .is("recurring_parent_id", null)
-    .lt("entry_date", formatDateKey(rangeEnd));
+    .lt("entry_date", formatDateKey(seedQueryEnd));
 
   if (error) throw error;
   if (!seeds?.length) return;
@@ -608,6 +622,9 @@ async function ensureRecurringEntries(
     const seedDate = parseISO(seed.entry_date);
     const seedMonth = startOfMonth(seedDate);
     const installmentLimit = (seed.installments ?? 1) > 1 ? (seed.installments ?? 1) : null;
+    const rangeEnd = installmentLimit
+      ? minDate(requestedEnd, calendarEnd)
+      : recurringMaterializationEnd(end);
     const occurrences: Array<Record<string, unknown>> = [];
     let cursor = seedMonth;
     let occurrenceIndex = 0;
@@ -1625,7 +1642,7 @@ export async function listEntryMonths(storeId: string) {
     client,
     storeId,
     "2000-01-01",
-    addMonths(startOfMonth(new Date()), 1).toISOString().slice(0, 10),
+    formatDateKey(installmentCalendarEnd()),
   );
 
   const { data, error } = await client
@@ -1648,7 +1665,7 @@ export async function listEntryMonths(storeId: string) {
 }
 
 function installmentCountFor(entry: Pick<Entry, "installments">) {
-  return Math.max(1, Math.min(120, Math.round(entry.installments || 1)));
+  return Math.max(1, Math.min(INSTALLMENT_CALENDAR_MONTHS, Math.round(entry.installments || 1)));
 }
 
 function buildInstallmentChildRows(parent: EntryRow) {
