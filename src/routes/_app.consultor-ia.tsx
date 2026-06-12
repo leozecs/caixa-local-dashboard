@@ -31,21 +31,6 @@ type InsightResponse = {
   actions: string[];
 };
 
-const GESTAO_LOCAL_IMPROVEMENTS = [
-  "Comparar o dia atual com a media diaria necessaria para bater a meta.",
-  "Avisar quando uma categoria de despesa cresce acima do padrao do mes.",
-  "Separar margem de produto da margem operacional da loja.",
-  "Sugerir revisao de preco quando custo do produto reduz a margem.",
-  "Mostrar oportunidades por forma de pagamento, incluindo taxa e prazo.",
-  "Detectar dias fracos da semana e sugerir acao comercial simples.",
-  "Apontar categorias sem lancamento recente para evitar caixa incompleto.",
-  "Alertar sobre recorrencias que vencem antes do fechamento mensal.",
-  "Transformar importacoes em uma checklist de conciliacao antes de salvar.",
-  "Gerar resumo semanal curto para owner e atendentes autorizados.",
-  "Separar leitura para perfil pessoal, sem comissao, ticket medio ou equipe.",
-  "Criar plano de acao mensal com tres prioridades e prazo claro.",
-] as const;
-
 function ConsultorIaPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
@@ -219,26 +204,6 @@ function ConsultorIaPage() {
                 Enviar
               </Button>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-none">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">
-            Melhorias recomendadas para o Gestao Local
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {GESTAO_LOCAL_IMPROVEMENTS.map((item, index) => (
-              <div key={item} className="rounded-md border border-border px-3 py-2">
-                <div className="text-xs font-medium text-muted-foreground">
-                  {String(index + 1).padStart(2, "0")}
-                </div>
-                <div className="mt-1 text-sm leading-snug">{item}</div>
-              </div>
-            ))}
           </div>
         </CardContent>
       </Card>

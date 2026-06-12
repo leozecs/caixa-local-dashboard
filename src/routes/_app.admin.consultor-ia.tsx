@@ -9,7 +9,12 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatBRL, listAdminAiInsights, listStores, listStoreMonthlyResults } from "@/lib/data";
+import {
+  formatBRL,
+  listAdminAiInsights,
+  listSubscriptionPaymentProofs,
+  listSubscriptions,
+} from "@/lib/data";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/_app/admin/consultor-ia")({
@@ -27,41 +32,48 @@ type InsightResponse = {
 function AdminConsultorIa() {
   const queryClient = useQueryClient();
 
-  const { data: rows = [] } = useQuery({
-    queryKey: ["admin-store-monthly-results"],
-    queryFn: () => listStoreMonthlyResults(),
+  const { data: subscriptions = [] } = useQuery({
+    queryKey: ["subscriptions"],
+    queryFn: () => listSubscriptions(),
   });
 
-  const { data: stores = [] } = useQuery({
-    queryKey: ["stores"],
-    queryFn: () => listStores(),
+  const { data: proofs = [] } = useQuery({
+    queryKey: ["subscription-proofs-admin"],
+    queryFn: () => listSubscriptionPaymentProofs(),
   });
 
   const { data: adminInsights = [] } = useQuery({
-    queryKey: ["admin-ai-insights", "portfolio"],
-    queryFn: () => listAdminAiInsights("portfolio"),
+    queryKey: ["admin-ai-insights", "subscriptions"],
+    queryFn: () => listAdminAiInsights("subscriptions"),
   });
 
   const planCounts = useMemo(
     () =>
-      stores.reduce<Record<string, number>>((acc, store) => {
-        acc[store.plan] = (acc[store.plan] || 0) + 1;
+      subscriptions.reduce<Record<string, number>>((acc, subscription) => {
+        acc[subscription.plan] = (acc[subscription.plan] || 0) + 1;
         return acc;
       }, {}),
-    [stores],
+    [subscriptions],
+  );
+  const statusCounts = useMemo(
+    () =>
+      subscriptions.reduce<Record<string, number>>((acc, subscription) => {
+        acc[subscription.payStatus] = (acc[subscription.payStatus] || 0) + 1;
+        return acc;
+      }, {}),
+    [subscriptions],
   );
 
   const mutation = useMutation({
     mutationFn: async () => {
       const token = await getAccessToken();
-      const totals = rows.reduce(
-        (acc, row) => ({
-          revenue: acc.revenue + row.revenue,
-          expenses: acc.expenses + row.expenses,
-          profit: acc.profit + row.profit,
-        }),
-        { revenue: 0, expenses: 0, profit: 0 },
-      );
+      const mrr = subscriptions
+        .filter(
+          (subscription) =>
+            subscription.payStatus === "ativa" || subscription.payStatus === "em_dia",
+        )
+        .reduce((sum, subscription) => sum + subscription.amount, 0);
+      const pendingProofs = proofs.filter((proof) => proof.status === "em_analise");
       const response = await fetch("/api/ai-insights", {
         method: "POST",
         headers: {
@@ -69,21 +81,35 @@ function AdminConsultorIa() {
           authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          scope: "admin_portfolio",
+          scope: "admin_subscriptions",
           metrics: {
-            scope: "commercial_growth",
+            scope: "subscription_operations",
             period: new Date().toISOString().slice(0, 7),
-            totals,
+            totals: {
+              mrr,
+              active: subscriptions.filter(
+                (subscription) =>
+                  subscription.payStatus === "ativa" || subscription.payStatus === "em_dia",
+              ).length,
+              overdue: subscriptions.filter(
+                (subscription) => subscription.payStatus === "em_atraso",
+              ).length,
+              blocked: subscriptions.filter(
+                (subscription) => subscription.payStatus === "bloqueada",
+              ).length,
+              pendingProofs: pendingProofs.length,
+              exempt: subscriptions.filter((subscription) => subscription.amount === 0).length,
+            },
             planCounts,
-            goal: "Gerar mais leads, aumentar recorrencia, reduzir cancelamento e vender mais Caixa Local para comercios locais.",
-            stores: rows.map((row) => ({
-              name: row.storeName,
-              owner: row.owner,
-              plan: row.plan,
-              status: row.status,
-              revenue: row.revenue,
-              expenses: row.expenses,
-              profit: row.profit,
+            statusCounts,
+            goal: "Analisar a saude das assinaturas, reduzir atraso, priorizar comprovantes e manter MRR previsivel.",
+            subscriptions: subscriptions.map((subscription) => ({
+              store: subscription.storeName,
+              plan: subscription.plan,
+              amount: subscription.amount,
+              status: subscription.payStatus,
+              nextCharge: subscription.nextCharge,
+              lastPayment: subscription.lastPayment,
             })),
           },
         }),
@@ -96,8 +122,8 @@ function AdminConsultorIa() {
       return payload as InsightResponse;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-ai-insights", "portfolio"] });
-      toast.success("Insight da carteira gerado.");
+      queryClient.invalidateQueries({ queryKey: ["admin-ai-insights", "subscriptions"] });
+      toast.success("Insight de assinaturas gerado.");
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao gerar analise."),
@@ -112,15 +138,22 @@ function AdminConsultorIa() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Consultor IA de vendas"
-        description="Insight semanal para vender mais Caixa Local, gerar leads e aumentar recorrencia."
+        title="Consultor IA de assinaturas"
+        description="Insight semanal sobre MRR, atrasos, bloqueios e comprovantes."
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Metric label="Lojas na base" value={`${stores.length}`} />
+        <Metric label="Assinaturas" value={`${subscriptions.length}`} />
         <Metric
-          label="Receita das lojas"
-          value={formatBRL(rows.reduce((s, r) => s + r.revenue, 0))}
+          label="MRR ativo"
+          value={formatBRL(
+            subscriptions
+              .filter(
+                (subscription) =>
+                  subscription.payStatus === "ativa" || subscription.payStatus === "em_dia",
+              )
+              .reduce((sum, subscription) => sum + subscription.amount, 0),
+          )}
         />
         <Metric label="Planos ativos" value={`${Object.keys(planCounts).length}`} />
       </div>
@@ -128,7 +161,7 @@ function AdminConsultorIa() {
       <Card className="shadow-none overflow-hidden">
         <CardHeader className="border-b border-border pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="text-sm font-semibold">Crescimento comercial</CardTitle>
+            <CardTitle className="text-sm font-semibold">Saúde das assinaturas</CardTitle>
             <div className="flex flex-wrap gap-2">
               {insight && (
                 <Badge variant="outline">
@@ -147,12 +180,12 @@ function AdminConsultorIa() {
           <ChatBubble
             icon={Bot}
             title="Caixa Local"
-            text="Gere um insight semanal com ideias praticas para atrair lojistas, transformar conversas em assinatura e manter clientes recorrentes."
+            text="Gere um insight semanal para priorizar assinaturas em atraso, comprovantes pendentes, bloqueios e oportunidades de MRR."
           />
           {insight ? (
             <ChatBubble
               icon={Bot}
-              title="Insight semanal de vendas"
+              title="Insight semanal de assinaturas"
               text={[
                 insight.summary,
                 `Maior oportunidade: ${insight.opportunity}`,
@@ -162,14 +195,18 @@ function AdminConsultorIa() {
               meta={format(parseISO(insight.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
             />
           ) : (
-            <ChatBubble icon={Bot} title="Insight semanal de vendas" text="Nenhum insight ainda." />
+            <ChatBubble
+              icon={Bot}
+              title="Insight semanal de assinaturas"
+              text="Nenhum insight ainda."
+            />
           )}
           <div className="flex justify-end">
             <Button
               size="sm"
               className="gap-2"
               onClick={() => mutation.mutate()}
-              disabled={mutation.isPending || !rows.length || weeklyLocked}
+              disabled={mutation.isPending || !subscriptions.length || weeklyLocked}
             >
               {mutation.isPending ? (
                 <RefreshCcw className="h-4 w-4 animate-spin" />

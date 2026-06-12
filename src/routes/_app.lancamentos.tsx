@@ -88,6 +88,7 @@ function LancamentosPage() {
   const [editing, setEditing] = useState<Entry | null>(null);
   const [deleting, setDeleting] = useState<Entry | null>(null);
   const [attachmentEntry, setAttachmentEntry] = useState<Entry | null>(null);
+  const [listDialogType, setListDialogType] = useState<EntryType | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(startOfMonth(new Date()).toISOString());
 
   const { data: store } = useQuery({
@@ -205,9 +206,12 @@ function LancamentosPage() {
 
   const receitas = filtered.filter((entry) => entry.type === "receita");
   const despesas = filtered.filter((entry) => entry.type === "despesa");
-  const totalReceitas = receitas.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalReceitas = receitas
+    .filter((entry) => isEntryDue(entry.date))
+    .reduce((sum, entry) => sum + entry.amount, 0);
   const totalDespesas = despesas.reduce((sum, entry) => sum + entry.amount, 0);
   const saldo = totalReceitas - totalDespesas;
+  const installmentEntries = filtered.filter((entry) => (entry.installments || 1) > 1);
 
   if (!store)
     return <div className="text-sm text-muted-foreground">Nenhuma loja vinculada a sua conta.</div>;
@@ -304,6 +308,7 @@ function LancamentosPage() {
           onDelete={setDeleting}
           onAttachments={setAttachmentEntry}
           canManageAttachments={canManageAttachments}
+          onViewAll={() => setListDialogType("receita")}
         />
         <EntriesTable
           title="Despesas"
@@ -321,8 +326,11 @@ function LancamentosPage() {
           onDelete={setDeleting}
           onAttachments={setAttachmentEntry}
           canManageAttachments={canManageAttachments}
+          onViewAll={() => setListDialogType("despesa")}
         />
       </div>
+
+      {installmentEntries.length > 0 && <InstallmentEntriesTable entries={installmentEntries} />}
 
       <EntryModal
         open={modalOpen}
@@ -366,6 +374,29 @@ function LancamentosPage() {
         entry={attachmentEntry}
         onOpenChange={(open) => !open && setAttachmentEntry(null)}
       />
+
+      <EntriesListDialog
+        type={listDialogType}
+        entries={listDialogType === "receita" ? receitas : despesas}
+        canManage={canManageEntries}
+        canManageAttachments={canManageAttachments}
+        isPersonalProfile={isPersonalProfile}
+        onOpenChange={(open) => !open && setListDialogType(null)}
+        onEdit={(entry) => {
+          setEditing(entry);
+          setCreatingType(entry.type);
+          setModalOpen(true);
+          setListDialogType(null);
+        }}
+        onDelete={(entry) => {
+          setDeleting(entry);
+          setListDialogType(null);
+        }}
+        onAttachments={(entry) => {
+          setAttachmentEntry(entry);
+          setListDialogType(null);
+        }}
+      />
     </div>
   );
 }
@@ -382,6 +413,7 @@ function EntriesTable({
   onEdit,
   onDelete,
   onAttachments,
+  onViewAll,
 }: {
   title: string;
   type: EntryType;
@@ -394,6 +426,7 @@ function EntriesTable({
   onEdit: (entry: Entry) => void;
   onDelete: (entry: Entry) => void;
   onAttachments: (entry: Entry) => void;
+  onViewAll: () => void;
 }) {
   return (
     <Card className="shadow-none">
@@ -431,7 +464,7 @@ function EntriesTable({
                         Recorrente
                       </Badge>
                     )}
-                    {entry.type === "receita" && (entry.installments || 1) > 1 && (
+                    {(entry.installments || 1) > 1 && (
                       <Badge variant="outline" className="h-5 px-1.5 text-[11px] font-normal">
                         {entry.installments}x
                       </Badge>
@@ -460,8 +493,12 @@ function EntriesTable({
                       entry.type === "receita" ? "text-success" : "text-destructive",
                     )}
                   >
-                    {entry.type === "receita" ? "+" : "-"}{" "}
-                    {formatBRLPrecise(entry.saleTotalAmount ?? entry.amount)}
+                    {entry.type === "receita" ? "+" : "-"} {formatBRLPrecise(entry.amount)}
+                    {(entry.installments || 1) > 1 && entry.saleTotalAmount ? (
+                      <div className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+                        Total {formatBRLPrecise(entry.saleTotalAmount)}
+                      </div>
+                    ) : null}
                   </div>
                   {canManage && (
                     <div className="flex items-center justify-end gap-1">
@@ -500,8 +537,10 @@ function EntriesTable({
               </div>
             ))}
             {entries.length > 10 && (
-              <div className="px-4 py-3 text-center text-xs text-muted-foreground">
-                Exibindo os 10 mais recentes deste mes.
+              <div className="px-4 py-3 text-center">
+                <Button type="button" variant="outline" size="sm" onClick={onViewAll}>
+                  Ver lista completa
+                </Button>
               </div>
             )}
           </div>
@@ -527,6 +566,187 @@ function EmptyTable({ type, onAdd }: { type: EntryType; onAdd: () => void }) {
         <Plus className="h-4 w-4" /> Adicionar
       </Button>
     </div>
+  );
+}
+
+function EntriesListDialog({
+  type,
+  entries,
+  canManage,
+  canManageAttachments,
+  isPersonalProfile,
+  onOpenChange,
+  onEdit,
+  onDelete,
+  onAttachments,
+}: {
+  type: EntryType | null;
+  entries: Entry[];
+  canManage: boolean;
+  canManageAttachments: boolean;
+  isPersonalProfile: boolean;
+  onOpenChange: (open: boolean) => void;
+  onEdit: (entry: Entry) => void;
+  onDelete: (entry: Entry) => void;
+  onAttachments: (entry: Entry) => void;
+}) {
+  return (
+    <Dialog open={Boolean(type)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{type === "receita" ? "Receitas" : "Despesas"}</DialogTitle>
+          <DialogDescription>
+            Lista completa do mês selecionado, sem rolagem infinita.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full text-sm">
+            <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+              <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
+                <th>Nome</th>
+                <th>Data</th>
+                <th>Marcadores</th>
+                <th className="text-right">Valor</th>
+                {canManage && <th className="text-right">Ações</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr key={entry.id} className="border-b border-border last:border-0">
+                  <td className="px-3 py-2.5">
+                    <div className="font-medium">{entry.category}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {entry.description || "Sem descrição"}
+                    </div>
+                    {entry.type === "receita" && !isPersonalProfile && entry.salespersonName ? (
+                      <div className="text-xs text-muted-foreground">{entry.salespersonName}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2.5 text-muted-foreground">
+                    {format(parseISO(entry.date), "dd/MM/yyyy")}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex flex-wrap gap-1">
+                      {entry.isRecurring && (
+                        <Badge variant="outline" className="h-5 px-1.5 text-[11px] font-normal">
+                          Recorrente
+                        </Badge>
+                      )}
+                      {(entry.installments || 1) > 1 && (
+                        <Badge variant="outline" className="h-5 px-1.5 text-[11px] font-normal">
+                          {entry.installments}x
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
+                  <td
+                    className={cn(
+                      "px-3 py-2.5 text-right font-semibold tabular-nums",
+                      entry.type === "receita" ? "text-success" : "text-destructive",
+                    )}
+                  >
+                    {entry.type === "receita" ? "+" : "-"} {formatBRLPrecise(entry.amount)}
+                  </td>
+                  {canManage && (
+                    <td className="px-3 py-2.5">
+                      <div className="flex justify-end gap-1">
+                        {canManageAttachments && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => onAttachments(entry)}
+                            aria-label="Comprovantes"
+                          >
+                            <Paperclip className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => onEdit(entry)}
+                          aria-label="Editar lançamento"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={() => onDelete(entry)}
+                          aria-label="Excluir lançamento"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function InstallmentEntriesTable({ entries }: { entries: Entry[] }) {
+  return (
+    <Card className="shadow-none">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold">Lançamentos parcelados</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+              <tr className="[&>th]:px-4 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
+                <th>Data</th>
+                <th>Tipo</th>
+                <th>Nome</th>
+                <th className="text-right">Valor total</th>
+                <th className="text-right">Valor deste mês</th>
+                <th className="text-right">Parcelas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr key={entry.id} className="border-b border-border last:border-0">
+                  <td className="px-4 py-2.5 text-muted-foreground">
+                    {format(parseISO(entry.date), "dd/MM/yyyy")}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <EntryBadge type={entry.type} />
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <div className="font-medium">{entry.category}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {entry.description || "Sem descrição"}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">
+                    {formatBRLPrecise(entry.saleTotalAmount ?? entry.amount)}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-4 py-2.5 text-right font-semibold tabular-nums",
+                      entry.type === "receita" ? "text-success" : "text-destructive",
+                    )}
+                  >
+                    {entry.type === "receita" ? "+" : "-"} {formatBRLPrecise(entry.amount)}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-muted-foreground">
+                    {entry.installments || 1}x
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -669,6 +889,12 @@ function EntryModal({
   const installmentAmountNumber = Number(installmentAmount);
   const isPersonalProfile = profileType === "pessoal";
 
+  useEffect(() => {
+    if (installmentCount > 1 && useInstallmentAmount && amountNumber > 0) {
+      setInstallmentAmount((amountNumber / installmentCount).toFixed(2));
+    }
+  }, [amountNumber, installmentCount, useInstallmentAmount]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -689,19 +915,19 @@ function EntryModal({
               description,
               paymentMethod,
               amount:
-                type === "receita" && installmentCount > 1 && useInstallmentAmount
+                installmentCount > 1 && useInstallmentAmount
                   ? installmentAmountNumber
                   : type === "receita" && hasDownPayment
                     ? Number(downPaymentAmount)
                     : amountNumber,
-              saleTotalAmount: type === "receita" ? Number(amount) : null,
+              saleTotalAmount: type === "receita" || installmentCount > 1 ? Number(amount) : null,
               productCostAmount:
                 type === "receita" && !isPersonalProfile && productCostAmount.trim() !== ""
                   ? Number(productCostAmount)
                   : null,
               downPaymentAmount:
                 type === "receita" && hasDownPayment ? Number(downPaymentAmount) : null,
-              installments: type === "receita" ? installmentCount : 1,
+              installments: installmentCount,
               salespersonName:
                 type === "receita" && applyCommission && !isPersonalProfile
                   ? salespersonName
@@ -710,7 +936,7 @@ function EntryModal({
                 type === "receita" && applyCommission && !isPersonalProfile
                   ? Number(commissionPercent)
                   : null,
-              isRecurring: type === "receita" && installmentCount > 1 ? true : isRecurring,
+              isRecurring: installmentCount > 1 ? true : isRecurring,
             });
           }}
         >
@@ -893,37 +1119,32 @@ function EntryModal({
               />
             </Field>
           </div>
-          {type === "receita" && (
-            <Field label="Parcelas escolhidas">
-              <Input
-                type="number"
-                min="1"
-                max="120"
-                step="1"
-                value={installments}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setInstallments(value);
-                  if (Number(value) > 1) {
-                    setUseInstallmentAmount(true);
-                    setIsRecurring(true);
-                    if (!installmentAmount && Number(amount) > 0) {
-                      setInstallmentAmount(String(Number(amount) / Number(value)));
-                    }
-                  }
-                }}
-                required
-              />
-            </Field>
-          )}
-          {type === "receita" && installmentCount > 1 && (
+          <Field label="Parcelas escolhidas">
+            <Input
+              type="number"
+              min="1"
+              max="120"
+              step="1"
+              value={installments}
+              onChange={(event) => {
+                const value = event.target.value;
+                setInstallments(value);
+                if (Number(value) > 1) {
+                  setUseInstallmentAmount(true);
+                  setIsRecurring(true);
+                }
+              }}
+              required
+            />
+          </Field>
+          {installmentCount > 1 && (
             <div className="rounded-md border border-border bg-muted/30 p-3 space-y-3">
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={useInstallmentAmount}
                   onCheckedChange={(checked) => setUseInstallmentAmount(checked === true)}
                 />
-                Lançar no faturamento apenas o valor da parcela
+                Lançar no mês apenas o valor da parcela
               </label>
               {useInstallmentAmount && (
                 <Field label="Valor de cada parcela (R$)">
@@ -944,14 +1165,14 @@ function EntryModal({
               )}
               <div className="text-xs text-muted-foreground">
                 O sistema cria uma parcela por mes ate completar {installmentCount} parcelas. O
-                valor total da venda continua salvo para controle e comissao.
+                valor total continua salvo para controle e acompanhamento.
               </div>
             </div>
           )}
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
-              checked={isRecurring || (type === "receita" && installmentCount > 1)}
-              disabled={type === "receita" && installmentCount > 1}
+              checked={isRecurring || installmentCount > 1}
+              disabled={installmentCount > 1}
               onCheckedChange={(checked) => setIsRecurring(checked === true)}
             />
             Lancamento recorrente
@@ -965,14 +1186,13 @@ function EntryModal({
               disabled={
                 pending ||
                 Number(amount) <= 0 ||
-                (type === "receita" &&
-                  installmentCount > 1 &&
+                (installmentCount > 1 &&
                   useInstallmentAmount &&
                   (installmentAmount.trim() === "" || installmentAmountNumber <= 0)) ||
                 (type === "receita" &&
                   hasDownPayment &&
                   (downPaymentAmount.trim() === "" || Number(downPaymentAmount) < 0)) ||
-                (type === "receita" && Number(installments) < 1) ||
+                Number(installments) < 1 ||
                 (type === "receita" &&
                   !isPersonalProfile &&
                   productCostAmount.trim() !== "" &&
@@ -1126,4 +1346,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </div>
   );
+}
+
+function isEntryDue(date: string) {
+  const entryDate = parseISO(date);
+  const today = new Date();
+  entryDate.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  return entryDate.getTime() <= today.getTime();
 }

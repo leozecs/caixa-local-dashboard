@@ -5,10 +5,12 @@ import {
   Building2,
   CheckCircle2,
   CircleDollarSign,
+  Copy,
   KeyRound,
   Loader2,
   LockKeyhole,
   Mail,
+  QrCode,
   ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -19,6 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { requestPasswordReset, signIn } from "@/lib/auth";
 import { isValidEmail, normalizeEmail } from "@/lib/security";
+import { formatBRLPrecise } from "@/lib/data";
+import { getPixQrCodeUrl, PUBLIC_PLAN_CHECKOUTS } from "@/lib/pix";
 
 export const Route = createFileRoute("/login")({
   head: () => ({ meta: [{ title: "Entrar | Caixa Local" }] }),
@@ -59,8 +63,13 @@ function LoginPage() {
   const [rememberAccess, setRememberAccess] = useState(true);
   const [loading, setLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [mode, setMode] = useState<"login" | "cadastro">("login");
+  const [selectedPlanName, setSelectedPlanName] = useState<string>(PUBLIC_PLAN_CHECKOUTS[1].name);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const selectedPlan =
+    PUBLIC_PLAN_CHECKOUTS.find((plan) => plan.name === selectedPlanName) ||
+    PUBLIC_PLAN_CHECKOUTS[1];
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -210,119 +219,214 @@ function LoginPage() {
 
                 <div className="mt-5 space-y-2">
                   <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                    Entre na sua conta
+                    {mode === "login" ? "Entre na sua conta" : "Cadastre sua loja"}
                   </h2>
                   <p className="text-sm leading-6 text-slate-500">
-                    Acesse seu painel para acompanhar caixa, lancamentos e relatorios com seguranca.
+                    {mode === "login"
+                      ? "Acesse seu painel para acompanhar caixa, lançamentos e relatórios com segurança."
+                      : "Escolha um plano, pague via Pix e envie o comprovante para liberação do acesso."}
                   </p>
                 </div>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-medium text-slate-700">
-                    E-mail
-                  </Label>
-                  <div className="group relative">
-                    <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="seu@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      autoComplete="email"
-                      aria-invalid={Boolean(error)}
-                      aria-describedby={error ? "login-feedback" : undefined}
-                      className="h-11 rounded-lg border-slate-200 bg-white pl-10 text-sm text-slate-950 shadow-sm transition duration-200 placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500/20"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="password" className="text-sm font-medium text-slate-700">
-                    Senha
-                  </Label>
-                  <div className="group relative">
-                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" />
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="Digite sua senha"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoComplete="current-password"
-                      aria-invalid={Boolean(error)}
-                      aria-describedby={error ? "login-feedback" : undefined}
-                      className="h-11 rounded-lg border-slate-200 bg-white pl-10 text-sm text-slate-950 shadow-sm transition duration-200 placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500/20"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <label
-                    htmlFor="remember-access"
-                    className="flex cursor-pointer items-center gap-2 text-slate-600"
-                  >
-                    <input
-                      id="remember-access"
-                      type="checkbox"
-                      checked={rememberAccess}
-                      onChange={(event) => setRememberAccess(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 accent-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30"
-                    />
-                    Lembrar acesso
-                  </label>
-                  <button
-                    type="button"
-                    className="font-medium text-emerald-700 transition hover:text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={handlePasswordReset}
-                    disabled={resetLoading}
-                  >
-                    {resetLoading ? "Enviando link..." : "Esqueci minha senha"}
-                  </button>
-                </div>
-
-                {error && (
-                  <div
-                    id="login-feedback"
-                    role="alert"
-                    className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
-                  >
-                    <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>{error}</span>
-                  </div>
-                )}
-                {message && (
-                  <div
-                    role="status"
-                    className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800"
-                  >
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>{message}</span>
-                  </div>
-                )}
-
-                <Button
-                  type="submit"
-                  className="h-11 w-full rounded-lg bg-[#0f3d38] text-sm font-semibold text-white shadow-lg shadow-emerald-950/20 transition duration-200 hover:-translate-y-0.5 hover:bg-[#125148] hover:shadow-xl hover:shadow-emerald-950/25 focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:translate-y-0"
-                  disabled={loading}
+              <div className="mb-4 grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-sm font-medium">
+                <button
+                  type="button"
+                  className={[
+                    "rounded-md px-3 py-2 transition",
+                    mode === "login" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500",
+                  ].join(" ")}
+                  onClick={() => setMode("login")}
                 >
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Entrando...
-                    </>
-                  ) : (
-                    <>
-                      Entrar com seguranca
-                      <ArrowRight className="h-4 w-4" />
-                    </>
+                  Login
+                </button>
+                <button
+                  type="button"
+                  className={[
+                    "rounded-md px-3 py-2 transition",
+                    mode === "cadastro" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500",
+                  ].join(" ")}
+                  onClick={() => setMode("cadastro")}
+                >
+                  Cadastro
+                </button>
+              </div>
+
+              {mode === "login" ? (
+                <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+                  <div className="space-y-2">
+                    <Label htmlFor="email" className="text-sm font-medium text-slate-700">
+                      E-mail
+                    </Label>
+                    <div className="group relative">
+                      <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" />
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="seu@email.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoComplete="email"
+                        aria-invalid={Boolean(error)}
+                        aria-describedby={error ? "login-feedback" : undefined}
+                        className="h-11 rounded-lg border-slate-200 bg-white pl-10 text-sm text-slate-950 shadow-sm transition duration-200 placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500/20"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="password" className="text-sm font-medium text-slate-700">
+                      Senha
+                    </Label>
+                    <div className="group relative">
+                      <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" />
+                      <Input
+                        id="password"
+                        type="password"
+                        placeholder="Digite sua senha"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                        aria-invalid={Boolean(error)}
+                        aria-describedby={error ? "login-feedback" : undefined}
+                        className="h-11 rounded-lg border-slate-200 bg-white pl-10 text-sm text-slate-950 shadow-sm transition duration-200 placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500/20"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <label
+                      htmlFor="remember-access"
+                      className="flex cursor-pointer items-center gap-2 text-slate-600"
+                    >
+                      <input
+                        id="remember-access"
+                        type="checkbox"
+                        checked={rememberAccess}
+                        onChange={(event) => setRememberAccess(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 accent-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30"
+                      />
+                      Lembrar acesso
+                    </label>
+                    <button
+                      type="button"
+                      className="font-medium text-emerald-700 transition hover:text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={handlePasswordReset}
+                      disabled={resetLoading}
+                    >
+                      {resetLoading ? "Enviando link..." : "Esqueci minha senha"}
+                    </button>
+                  </div>
+
+                  {error && (
+                    <div
+                      id="login-feedback"
+                      role="alert"
+                      className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+                    >
+                      <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>{error}</span>
+                    </div>
                   )}
-                </Button>
-              </form>
+                  {message && (
+                    <div
+                      role="status"
+                      className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800"
+                    >
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>{message}</span>
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    className="h-11 w-full rounded-lg bg-[#0f3d38] text-sm font-semibold text-white shadow-lg shadow-emerald-950/20 transition duration-200 hover:-translate-y-0.5 hover:bg-[#125148] hover:shadow-xl hover:shadow-emerald-950/25 focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:translate-y-0"
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Entrando...
+                      </>
+                    ) : (
+                      <>
+                        Entrar com seguranca
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                </form>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid gap-2">
+                    {PUBLIC_PLAN_CHECKOUTS.map((plan) => (
+                      <button
+                        key={plan.name}
+                        type="button"
+                        className={[
+                          "rounded-lg border p-3 text-left transition",
+                          selectedPlan.name === plan.name
+                            ? "border-emerald-600 bg-emerald-50"
+                            : "border-slate-200 bg-white hover:border-slate-300",
+                        ].join(" ")}
+                        onClick={() => setSelectedPlanName(plan.name)}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-semibold text-slate-950">{plan.name}</div>
+                          <div className="text-sm font-semibold text-emerald-700">
+                            {formatBRLPrecise(plan.amount)}
+                          </div>
+                        </div>
+                        <div className="mt-1 text-xs leading-5 text-slate-500">
+                          {plan.description}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                      <QrCode className="h-4 w-4 text-emerald-700" />
+                      Pagamento Pix do plano {selectedPlan.name}
+                    </div>
+                    <div className="flex flex-col items-center gap-3">
+                      <img
+                        src={getPixQrCodeUrl(selectedPlan.pixCode, 180)}
+                        alt={`QR Code Pix ${selectedPlan.name}`}
+                        className="h-40 w-40 rounded-md bg-white p-2"
+                      />
+                      <div className="max-w-full rounded-md bg-white px-3 py-2 text-xs text-slate-500">
+                        <div className="line-clamp-2 break-all">{selectedPlan.pixCode}</div>
+                      </div>
+                      <Button
+                        type="button"
+                        className="h-10 w-full rounded-lg bg-[#0f3d38] text-white hover:bg-[#125148]"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(selectedPlan.pixCode);
+                          setMessage(
+                            "Pix copia e cola copiado. Envie o comprovante para liberar o cadastro.",
+                          );
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                        Copiar Pix
+                      </Button>
+                    </div>
+                  </div>
+
+                  {message && (
+                    <div
+                      role="status"
+                      className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800"
+                    >
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>{message}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="mt-5 border-t border-slate-100 pt-4 text-right text-xs text-slate-500">
                 Caixa Local {APP_VERSION}

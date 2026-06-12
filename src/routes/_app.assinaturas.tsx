@@ -20,6 +20,7 @@ import {
   type SubscriptionProofStatus,
   type SubscriptionStatus,
 } from "@/lib/data";
+import { getPixQrCodeUrl, getPlanPixCode } from "@/lib/pix";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/assinaturas")({
@@ -76,14 +77,13 @@ function AssinaturaPage() {
   }
 
   const status = normalizeSubscriptionStatus(subscription?.payStatus, store.status);
+  const planName = subscription?.plan || store.plan;
+  const planPixCode = getPlanPixCode(planName);
   const pixCode =
     subscription?.pixCopyPaste ||
-    `CAIXA_LOCAL_PIX_MVP|loja=${store.id}|plano=${encodeURIComponent(
-      subscription?.plan || store.plan,
-    )}|valor=${subscription?.amount || 0}|vencimento=${subscription?.nextCharge || ""}`;
-  const qrCodeUrl =
-    subscription?.pixQrCodeUrl ||
-    `https://quickchart.io/qr?size=220&margin=1&text=${encodeURIComponent(pixCode)}`;
+    planPixCode ||
+    `CAIXA_LOCAL_PIX_MVP|loja=${store.id}|plano=${encodeURIComponent(planName)}|valor=${subscription?.amount || 0}|vencimento=${subscription?.nextCharge || ""}`;
+  const qrCodeUrl = subscription?.pixQrCodeUrl || getPixQrCodeUrl(pixCode);
   const paymentLink = subscription?.paymentLink || qrCodeUrl;
   const latestProof = proofs[0];
 

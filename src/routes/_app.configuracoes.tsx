@@ -183,7 +183,7 @@ function ConfigPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["current-store"] });
       queryClient.invalidateQueries({ queryKey: ["daily-store-results"] });
-      toast.success("Preferencia de WhatsApp atualizada.");
+      toast.success("Preferência de resumo do caixa atualizada.");
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao atualizar preferencia."),
@@ -464,7 +464,7 @@ function ConfigPage() {
                 </div>
               )}
             </div>
-            <Field label={isPersonalProfile ? "Imagem do perfil" : "Imagem da logo"}>
+            <Field label={isPersonalProfile ? "Escolha sua imagem" : "Escolha sua Logo"}>
               <Input name="logo" type="file" accept="image/*" required />
             </Field>
             <Button type="submit" size="sm" className="gap-2" disabled={logoMutation.isPending}>
@@ -790,10 +790,10 @@ function ConfigPage() {
             </>
           )}
           <ToggleRow
-            label="Alerta diario de fechamento"
+            label="Resumo do caixa em Alertas"
             hint={
               capabilities.dailyWhatsappSummary
-                ? "Envia o resumo do caixa pelo WhatsApp e mantem o resumo disponivel na aba Alertas."
+                ? "Mostra o resumo do caixa na aba Alertas quando houver fechamento do dia."
                 : "Disponivel a partir do plano Essencial."
             }
             checked={Boolean(store.dailyClosingWhatsappEnabled)}

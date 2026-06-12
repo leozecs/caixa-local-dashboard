@@ -75,19 +75,6 @@ export const Route = createFileRoute("/_app/relatorios")({
   component: RelatoriosPage,
 });
 
-const REPORT_IMPROVEMENTS = [
-  "Separar vendas confirmadas de entradas previstas para evitar fechar caixa com valor futuro.",
-  "Marcar despesas fixas por categoria para enxergar o peso real do custo mensal.",
-  "Comparar formas de pagamento para identificar taxas e prazos que reduzem o caixa.",
-  "Destacar maiores despesas do mes antes do fechamento para facilitar corte rapido.",
-  "Exportar CSV e PDF sempre com o mesmo periodo selecionado na tela.",
-  "Conciliar extratos importados com lancamentos existentes antes de salvar duplicados.",
-  "Manter historico semestral por meses com movimento real, sem meses vazios artificiais.",
-  "Anexar comprovantes aos lancamentos importantes para auditoria simples.",
-  "Remover importacoes por arquivo quando um extrato foi enviado errado.",
-  "Usar margem por custo de produto quando o custo foi informado no lancamento.",
-] as const;
-
 function RelatoriosPage() {
   const queryClient = useQueryClient();
   const { session } = useSession();
@@ -526,24 +513,6 @@ function RelatoriosPage() {
               />
             </LineChart>
           </ResponsiveContainer>
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-none">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">Melhorias uteis para relatorios</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            {REPORT_IMPROVEMENTS.map((item, index) => (
-              <div key={item} className="rounded-md border border-border px-3 py-2">
-                <div className="text-xs font-medium text-muted-foreground">
-                  {String(index + 1).padStart(2, "0")}
-                </div>
-                <div className="mt-1 text-sm">{item}</div>
-              </div>
-            ))}
-          </div>
         </CardContent>
       </Card>
 

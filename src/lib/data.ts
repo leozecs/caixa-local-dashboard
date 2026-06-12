@@ -117,6 +117,25 @@ export interface EntryAttachment {
   createdAt: string;
 }
 
+export interface NoteTopic {
+  id: string;
+  storeId: string;
+  title: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface NoteBlock {
+  id: string;
+  storeId: string;
+  topicId: string;
+  title: string;
+  content: string;
+  sortOrder: number;
+  updatedAt: string;
+  createdAt: string;
+}
+
 export interface Goals {
   revenue: number;
   margin: number;
@@ -324,6 +343,25 @@ type EntryAttachmentDbRow = {
   file_name: string;
   file_type: string | null;
   file_size: number;
+  created_at: string;
+};
+
+type NoteTopicDbRow = {
+  id: string;
+  store_id: string;
+  title: string;
+  sort_order: number;
+  created_at: string;
+};
+
+type NoteBlockDbRow = {
+  id: string;
+  store_id: string;
+  topic_id: string;
+  title: string;
+  content: string | null;
+  sort_order: number;
+  updated_at: string;
   created_at: string;
 };
 
@@ -569,8 +607,7 @@ async function ensureRecurringEntries(
   const rows = (seeds as EntryRow[]).flatMap((seed) => {
     const seedDate = parseISO(seed.entry_date);
     const seedMonth = startOfMonth(seedDate);
-    const installmentLimit =
-      seed.type === "receita" && (seed.installments ?? 1) > 1 ? (seed.installments ?? 1) : null;
+    const installmentLimit = (seed.installments ?? 1) > 1 ? (seed.installments ?? 1) : null;
     const occurrences: Array<Record<string, unknown>> = [];
     let cursor = seedMonth;
     let occurrenceIndex = 0;
@@ -692,6 +729,29 @@ function toEntryAttachment(row: EntryAttachmentDbRow): EntryAttachment {
     fileName: row.file_name,
     fileType: row.file_type,
     fileSize: row.file_size,
+    createdAt: row.created_at,
+  };
+}
+
+function toNoteTopic(row: NoteTopicDbRow): NoteTopic {
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    title: row.title,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+  };
+}
+
+function toNoteBlock(row: NoteBlockDbRow): NoteBlock {
+  return {
+    id: row.id,
+    storeId: row.store_id,
+    topicId: row.topic_id,
+    title: row.title,
+    content: row.content || "",
+    sortOrder: row.sort_order,
+    updatedAt: row.updated_at,
     createdAt: row.created_at,
   };
 }
@@ -1501,6 +1561,30 @@ export async function updateStorePlan(input: { storeId: string; plan: Plan; stat
   return hydrateStore(data as StoreRow);
 }
 
+export async function markSubscriptionExempt(input: { storeId: string; subscriptionId: string }) {
+  const client = requireSupabase();
+  const nextCharge = format(addMonths(new Date(), 12), "yyyy-MM-dd");
+
+  const { error: subscriptionError } = await client
+    .from("subscriptions")
+    .update({
+      amount: 0,
+      status: "ativa",
+      next_charge_date: nextCharge,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.subscriptionId);
+
+  if (subscriptionError) throw subscriptionError;
+
+  const { error: storeError } = await client
+    .from("stores")
+    .update({ status: "ativa", updated_at: new Date().toISOString() })
+    .eq("id", input.storeId);
+
+  if (storeError) throw storeError;
+}
+
 export async function listEntries(storeId: string, start?: string, end?: string) {
   const client = requireSupabase();
   const range = start && end ? { start, end } : monthRange();
@@ -1567,9 +1651,7 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
     payment_method: entry.paymentMethod,
     amount: Math.round(entry.amount * 100),
     sale_total_amount:
-      entry.type === "receita" &&
-      entry.saleTotalAmount !== null &&
-      entry.saleTotalAmount !== undefined
+      entry.saleTotalAmount !== null && entry.saleTotalAmount !== undefined
         ? Math.round(entry.saleTotalAmount * 100)
         : null,
     product_cost_amount:
@@ -1587,10 +1669,7 @@ export async function saveEntry(entry: Omit<Entry, "id"> & { id?: string }) {
       entry.downPaymentAmount !== undefined
         ? Math.round(entry.downPaymentAmount * 100)
         : null,
-    installments:
-      entry.type === "receita"
-        ? Math.max(1, Math.min(120, Math.round(entry.installments || 1)))
-        : 1,
+    installments: Math.max(1, Math.min(120, Math.round(entry.installments || 1))),
     import_source: entry.importSource?.trim() || null,
     is_recurring: Boolean(entry.isRecurring),
     updated_at: new Date().toISOString(),
@@ -1619,6 +1698,128 @@ export async function deleteEntriesByImportSource(storeId: string, importSource:
 export async function deleteEntry(id: string) {
   const client = requireSupabase();
   const { error } = await client.from("financial_entries").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function listNoteTopics(storeId: string): Promise<NoteTopic[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("note_topics")
+    .select("id, store_id, title, sort_order, created_at")
+    .eq("store_id", storeId)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+
+  return ((data || []) as NoteTopicDbRow[]).map(toNoteTopic);
+}
+
+export async function createNoteTopic(input: { storeId: string; title: string }) {
+  const client = requireSupabase();
+  const title = input.title.trim();
+  if (!title) throw new Error("Informe o nome do tema.");
+
+  const { data, error } = await client
+    .from("note_topics")
+    .insert({
+      store_id: input.storeId,
+      title,
+      sort_order: 100,
+    })
+    .select("id, store_id, title, sort_order, created_at")
+    .single();
+
+  if (error) throw error;
+  return toNoteTopic(data as NoteTopicDbRow);
+}
+
+export async function updateNoteTopic(input: { id: string; title: string }) {
+  const client = requireSupabase();
+  const title = input.title.trim();
+  if (!title) throw new Error("Informe o nome do tema.");
+
+  const { data, error } = await client
+    .from("note_topics")
+    .update({ title, updated_at: new Date().toISOString() })
+    .eq("id", input.id)
+    .select("id, store_id, title, sort_order, created_at")
+    .single();
+
+  if (error) throw error;
+  return toNoteTopic(data as NoteTopicDbRow);
+}
+
+export async function deleteNoteTopic(id: string) {
+  const client = requireSupabase();
+  const { error } = await client.from("note_topics").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function listNoteBlocks(storeId: string): Promise<NoteBlock[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("note_blocks")
+    .select("id, store_id, topic_id, title, content, sort_order, updated_at, created_at")
+    .eq("store_id", storeId)
+    .order("sort_order", { ascending: true })
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+
+  return ((data || []) as NoteBlockDbRow[]).map(toNoteBlock);
+}
+
+export async function createNoteBlock(input: { storeId: string; topicId: string; title: string }) {
+  const client = requireSupabase();
+  const title = input.title.trim();
+  if (!title) throw new Error("Informe o titulo da anotacao.");
+
+  const { data, error } = await client
+    .from("note_blocks")
+    .insert({
+      store_id: input.storeId,
+      topic_id: input.topicId,
+      title,
+      content: "",
+      sort_order: 100,
+    })
+    .select("id, store_id, topic_id, title, content, sort_order, updated_at, created_at")
+    .single();
+
+  if (error) throw error;
+  return toNoteBlock(data as NoteBlockDbRow);
+}
+
+export async function updateNoteBlock(input: { id: string; title: string; content: string }) {
+  const client = requireSupabase();
+  const title = input.title.trim();
+  if (!title) throw new Error("Informe o titulo da anotacao.");
+
+  const { data, error } = await client
+    .from("note_blocks")
+    .update({
+      title,
+      content: input.content,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.id)
+    .select("id, store_id, topic_id, title, content, sort_order, updated_at, created_at")
+    .single();
+
+  if (error) throw error;
+  return toNoteBlock(data as NoteBlockDbRow);
+}
+
+export async function deleteNoteBlock(id: string) {
+  const client = requireSupabase();
+  const { error } = await client.from("note_blocks").delete().eq("id", id);
   if (error) throw error;
 }
 

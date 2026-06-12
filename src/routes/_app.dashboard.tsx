@@ -194,19 +194,22 @@ function DashboardPage() {
         ? true
         : (entry.salespersonName?.trim() || "Sem responsavel") === selectedSalesperson,
     )
-    .reduce<Array<{ funcionario: string; receita: number; comissao: number }>>((items, entry) => {
-      const name = entry.salespersonName?.trim() || "Sem responsavel";
-      const item = items.find((row) => row.funcionario === name) || {
-        funcionario: name,
-        receita: 0,
-        comissao: 0,
-      };
-      if (!items.includes(item)) items.push(item);
-      item.receita += entry.amount;
-      item.comissao += entry.commissionAmount || 0;
-      return items;
-    }, [])
-    .sort((a, b) => b.receita - a.receita);
+    .reduce<Array<{ funcionario: string; valorVendido: number; comissao: number }>>(
+      (items, entry) => {
+        const name = entry.salespersonName?.trim() || "Sem responsavel";
+        const item = items.find((row) => row.funcionario === name) || {
+          funcionario: name,
+          valorVendido: 0,
+          comissao: 0,
+        };
+        if (!items.includes(item)) items.push(item);
+        item.valorVendido += entry.saleTotalAmount ?? entry.amount;
+        item.comissao += entry.commissionAmount || 0;
+        return items;
+      },
+      [],
+    )
+    .sort((a, b) => b.valorVendido - a.valorVendido);
   const topSalesperson = revenueBySalesperson[0];
 
   const todayEntries = currentEntries.filter((entry) => isSameDay(parseISO(entry.date), today));
@@ -397,7 +400,7 @@ function DashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <RoutineCard
           title="Despesa que mais pesou"
           value={expensesByCat[0] ? expensesByCat[0].categoria : "Sem despesa"}
@@ -413,8 +416,18 @@ function DashboardPage() {
           value={goals.revenue > 0 ? `${goalProgress.toFixed(0)}%` : "Sem meta"}
           detail={
             goals.revenue > 0
-              ? `Esperado para hoje: ${formatBRL(dailyRevenueGoal)}. Esperado ate hoje: ${formatBRL(expectedRevenue)}.`
+              ? `Meta diaria media: ${formatBRL(dailyRevenueGoal)}.`
               : "Configure uma meta mensal para medir o ritmo."
+          }
+          tone={goals.revenue > 0 && revenue < expectedRevenue * 0.85 ? "warning" : "success"}
+        />
+        <RoutineCard
+          title="Estimado até o dia atual"
+          value={goals.revenue > 0 ? formatBRL(expectedRevenue) : "Sem meta"}
+          detail={
+            goals.revenue > 0
+              ? `Dia ${elapsedDay} de ${daysInMonth}, calculado sobre a meta mensal.`
+              : "Defina uma meta de faturamento para calcular o estimado."
           }
           tone={goals.revenue > 0 && revenue < expectedRevenue * 0.85 ? "warning" : "success"}
         />
@@ -427,7 +440,7 @@ function DashboardPage() {
               <CardTitle className="text-sm font-semibold">Receita por funcionario</CardTitle>
               <div className="text-xs text-muted-foreground">
                 {topSalesperson
-                  ? `Melhor resultado: ${topSalesperson.funcionario} com ${formatBRL(topSalesperson.receita)}.`
+                  ? `Melhor resultado: ${topSalesperson.funcionario} com ${formatBRL(topSalesperson.valorVendido)}.`
                   : "Informe o responsavel nas receitas para ver o ranking."}
               </div>
             </div>
@@ -477,14 +490,14 @@ function DashboardPage() {
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
-                  dataKey="receita"
-                  name="Receita"
+                  dataKey="valorVendido"
+                  name="Valor vendido"
                   fill="oklch(0.58 0.13 155)"
                   radius={[4, 4, 0, 0]}
                 />
                 <Bar
                   dataKey="comissao"
-                  name="Comissao"
+                  name="Comissão"
                   fill="oklch(0.64 0.17 65)"
                   radius={[4, 4, 0, 0]}
                 />

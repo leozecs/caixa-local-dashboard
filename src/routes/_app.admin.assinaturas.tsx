@@ -23,6 +23,7 @@ import {
   getAppSetting,
   listSubscriptions,
   listSubscriptionPaymentProofs,
+  markSubscriptionExempt,
   openSubscriptionPaymentProof,
   rejectSubscriptionPaymentProof,
   renderBillingMessage,
@@ -66,6 +67,16 @@ function Assinaturas() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Erro ao recusar comprovante."),
+  });
+  const exemptMutation = useMutation({
+    mutationFn: markSubscriptionExempt,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-stores"] });
+      toast.success("Assinatura marcada como isenta.");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Erro ao isentar assinatura."),
   });
 
   const mrr = subs
@@ -157,24 +168,40 @@ function Assinaturas() {
                     <td className="px-4 py-2.5">
                       <PayBadge status={sub.payStatus} />
                     </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <Button variant="outline" size="sm" className="gap-2" asChild>
-                        <a
-                          href={`https://wa.me/?text=${encodeURIComponent(
-                            renderBillingMessage(billingTemplate, {
-                              loja: sub.storeName,
-                              plano: sub.plan,
-                              valor: formatBRL(sub.amount),
-                              vencimento: format(parseISO(sub.nextCharge), "dd/MM/yyyy"),
-                            }),
-                          )}`}
-                          target="_blank"
-                          rel="noreferrer"
+                    <td className="px-4 py-2.5">
+                      <div className="flex justify-end gap-1">
+                        <Button variant="outline" size="sm" className="gap-2" asChild>
+                          <a
+                            href={`https://wa.me/?text=${encodeURIComponent(
+                              renderBillingMessage(billingTemplate, {
+                                loja: sub.storeName,
+                                plano: sub.plan,
+                                valor: formatBRL(sub.amount),
+                                vencimento: format(parseISO(sub.nextCharge), "dd/MM/yyyy"),
+                              }),
+                            )}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                            Cobrar
+                          </a>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={exemptMutation.isPending || sub.amount === 0}
+                          onClick={() =>
+                            exemptMutation.mutate({
+                              storeId: sub.storeId,
+                              subscriptionId: sub.id,
+                            })
+                          }
                         >
-                          <MessageCircle className="h-3.5 w-3.5" />
-                          Cobrar
-                        </a>
-                      </Button>
+                          Isento
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

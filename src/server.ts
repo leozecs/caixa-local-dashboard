@@ -26,7 +26,7 @@ type AiInsight = {
 };
 
 const AI_SYSTEM_PROMPT =
-  'Voce e um consultor pratico para o Caixa Local. Se os dados tiverem scope "commercial_growth", foque em vender mais o Caixa Local, gerar leads, aumentar recorrencia e reduzir cancelamento. Caso contrario, foque na gestao financeira de pequenos comercios locais no Brasil. Analise apenas os dados recebidos, seja pratico e nao invente numeros. Responda exclusivamente em JSON valido no formato {"summary":"...","opportunity":"...","risk":"...","actions":["...","...","..."]}.';
+  'Voce e um consultor pratico para o Caixa Local. Se os dados tiverem scope "subscription_operations", foque em MRR, assinaturas em atraso, bloqueios, comprovantes pendentes, isencoes e previsibilidade de cobranca. Se os dados tiverem scope "commercial_growth", foque em vender mais o Caixa Local, gerar leads, aumentar recorrencia e reduzir cancelamento. Caso contrario, foque na gestao financeira de pequenos comercios locais no Brasil. Analise apenas os dados recebidos, seja pratico e nao invente numeros. Responda exclusivamente em JSON valido no formato {"summary":"...","opportunity":"...","risk":"...","actions":["...","...","..."]}.';
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_BLOCK_MS = 15 * 60 * 1000;
@@ -1181,13 +1181,14 @@ async function handleAiInsights(request: Request, env: unknown) {
   const storeId = typeof body.storeId === "string" ? body.storeId : "";
   const scope = typeof body.scope === "string" ? body.scope : "";
   try {
-    if (scope === "admin_portfolio") {
+    if (scope === "admin_portfolio" || scope === "admin_subscriptions") {
       const owner = await isOwner(env, user.id);
       if (!owner) {
         return jsonResponse({ message: "Apenas owner pode analisar a carteira." }, { status: 403 });
       }
 
-      const latestCreatedAt = await getLatestAdminAiInsightCreatedAt(env, "portfolio");
+      const adminInsightScope = scope === "admin_subscriptions" ? "subscriptions" : "portfolio";
+      const latestCreatedAt = await getLatestAdminAiInsightCreatedAt(env, adminInsightScope);
       if (latestCreatedAt) {
         const nextAllowedAt = new Date(new Date(latestCreatedAt).getTime() + ONE_WEEK_MS);
         if (Date.now() < nextAllowedAt.getTime()) {
@@ -1202,7 +1203,7 @@ async function handleAiInsights(request: Request, env: unknown) {
       }
 
       const insight = await generateAiInsight(env, body.metrics);
-      await saveAdminAiInsight(env, "portfolio", user.id, insight);
+      await saveAdminAiInsight(env, adminInsightScope, user.id, insight);
       return jsonResponse(insight);
     }
 

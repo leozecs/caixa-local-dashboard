@@ -19,6 +19,7 @@ import {
   Brain,
   Menu,
   X,
+  StickyNote,
 } from "lucide-react";
 import { useSession, signOut } from "@/lib/auth";
 import {
@@ -46,11 +47,12 @@ export const Route = createFileRoute("/_app")({
 const STORE_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/lancamentos", label: "Lançamentos", icon: ArrowLeftRight },
-  { to: "/metas", label: "Metas", icon: Target },
-  { to: "/assinaturas", label: "Assinatura", icon: CreditCard },
-  { to: "/alertas", label: "Alertas", icon: Bell },
-  { to: "/consultor-ia", label: "Consultor IA", icon: Sparkles },
   { to: "/relatorios", label: "Relatórios", icon: FileBarChart2 },
+  { to: "/metas", label: "Metas", icon: Target },
+  { to: "/alertas", label: "Alertas", icon: Bell },
+  { to: "/anotacoes", label: "Anotações", icon: StickyNote },
+  { to: "/consultor-ia", label: "Consultor IA", icon: Sparkles },
+  { to: "/assinaturas", label: "Assinatura", icon: CreditCard },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
 
@@ -201,7 +203,7 @@ function AppShell() {
             <Menu className="h-4 w-4" />
           </button>
 
-          <StoreSwitcher inAdmin={inAdmin} store={isAdmin ? null : currentStore || null} />
+          <HeaderBrand />
 
           <div className="ml-auto flex items-center gap-2">
             <DropdownMenu>
@@ -301,6 +303,20 @@ function BrandBlock({
       <div>
         <div className="text-sm font-semibold leading-tight truncate max-w-[168px]">{title}</div>
         <div className="text-[10px] text-sidebar-foreground/60 leading-tight">Caixa Local</div>
+      </div>
+    </div>
+  );
+}
+
+function HeaderBrand() {
+  return (
+    <div className="flex items-center gap-2.5 min-w-0">
+      <div className="h-8 w-8 rounded-md bg-muted grid place-items-center text-foreground">
+        <Wallet className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold leading-tight truncate">Caixa Local</div>
+        <div className="text-[11px] text-muted-foreground leading-none">Painel financeiro</div>
       </div>
     </div>
   );
