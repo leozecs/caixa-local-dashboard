@@ -37,7 +37,7 @@ import {
 } from "@/lib/data";
 
 export const Route = createFileRoute("/_app/anotacoes")({
-  head: () => ({ meta: [{ title: "AnotaÃ§Ãµes - Caixa Local" }] }),
+  head: () => ({ meta: [{ title: "Anotações - Caixa Local" }] }),
   component: AnotacoesPage,
 });
 
@@ -126,10 +126,10 @@ function AnotacoesPage() {
     mutationFn: updateNoteBlock,
     onSuccess: () => {
       invalidateNotes();
-      toast.success("AnotaÃ§Ã£o salva.");
+      toast.success("Anotação salva.");
     },
     onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Erro ao salvar anotaÃ§Ã£o."),
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar anotação."),
   });
   const deleteBlockMutation = useMutation({
     mutationFn: deleteNoteBlock,
@@ -151,8 +151,8 @@ function AnotacoesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="AnotaÃ§Ãµes"
-        description="Temas e blocos de nota para registrar decisÃµes, pendÃªncias e observaÃ§Ãµes da rotina."
+        title="Anotações"
+        description="Temas e blocos de nota para registrar decisões, pendências e observações da rotina."
       />
 
       {loadingError ? (
@@ -186,7 +186,7 @@ function AnotacoesPage() {
       )}
 
       {loadingError ? null : loadingTopics || loadingBlocks ? (
-        <div className="text-sm text-muted-foreground">Carregando anotaÃ§Ãµes...</div>
+        <div className="text-sm text-muted-foreground">Carregando anotações...</div>
       ) : topics.length ? (
         <div className="space-y-3">
           {topics.map((topic) => (
@@ -233,14 +233,14 @@ function AnotacoesPage() {
 
 function NotesUnavailable({ error }: { error: unknown }) {
   const message =
-    error instanceof Error ? error.message : "Nao foi possivel carregar a aba Anotacoes agora.";
+    error instanceof Error ? error.message : "Não foi possível carregar a aba Anotações agora.";
 
   return (
     <Card className="border-warning/40 bg-warning/5 shadow-none">
       <CardContent className="flex gap-3 p-4">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
         <div>
-          <div className="text-sm font-medium">Anotacoes indisponiveis</div>
+          <div className="text-sm font-medium">Anotações indisponíveis</div>
           <div className="mt-1 text-sm text-muted-foreground">{message}</div>
         </div>
       </CardContent>
@@ -452,7 +452,7 @@ function EmptyNotes() {
         </div>
         <div className="mt-3 text-sm font-medium">Nenhum tema criado</div>
         <div className="mt-1 text-sm text-muted-foreground">
-          Crie um tema para organizar blocos de nota por rotina, fornecedor ou decisÃ£o.
+          Crie um tema para organizar blocos de nota por rotina, fornecedor ou decisão.
         </div>
       </CardContent>
     </Card>

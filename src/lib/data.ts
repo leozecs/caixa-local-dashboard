@@ -965,7 +965,7 @@ function isMissingTableError(error: unknown) {
 
 function notesSchemaError() {
   return new Error(
-    "A aba Anotacoes ainda precisa da migracao 20260612120000_store_notes.sql aplicada no Supabase.",
+    "A aba Anotações ainda precisa da migração 20260612120000_store_notes.sql aplicada no Supabase.",
   );
 }
 
@@ -1917,7 +1917,7 @@ export async function listNoteBlocks(storeId: string): Promise<NoteBlock[]> {
 export async function createNoteBlock(input: { storeId: string; topicId: string; title: string }) {
   const client = requireSupabase();
   const title = input.title.trim();
-  if (!title) throw new Error("Informe o titulo da anotacao.");
+  if (!title) throw new Error("Informe o título da anotação.");
 
   const { data, error } = await client
     .from("note_blocks")
@@ -1939,7 +1939,7 @@ export async function createNoteBlock(input: { storeId: string; topicId: string;
 export async function updateNoteBlock(input: { id: string; title: string; content: string }) {
   const client = requireSupabase();
   const title = input.title.trim();
-  if (!title) throw new Error("Informe o titulo da anotacao.");
+  if (!title) throw new Error("Informe o título da anotação.");
 
   const { data, error } = await client
     .from("note_blocks")

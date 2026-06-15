@@ -597,16 +597,16 @@ function EntriesListDialog({
 }) {
   return (
     <Dialog open={Boolean(type)} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
+      <DialogContent className="grid max-h-[calc(100dvh-2rem)] w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:w-[calc(100vw-2rem)] sm:max-w-6xl">
+        <DialogHeader className="px-5 pb-3 pr-12 pt-5 sm:px-6 sm:pt-6">
           <DialogTitle>{type === "receita" ? "Receitas" : "Despesas"}</DialogTitle>
           <DialogDescription>
-            Lista completa do mês selecionado, sem rolagem infinita.
+            Lista completa do mês selecionado em uma área com rolagem.
           </DialogDescription>
         </DialogHeader>
-        <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+        <div className="min-h-0 overflow-auto border-t border-border">
+          <table className="w-full min-w-[820px] text-sm">
+            <thead className="sticky top-0 z-10 border-b border-border bg-background text-xs text-muted-foreground shadow-sm">
               <tr className="[&>th]:px-3 [&>th]:py-2.5 [&>th]:text-left [&>th]:font-medium">
                 <th>Nome</th>
                 <th>Data</th>
